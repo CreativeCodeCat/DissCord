@@ -166,5 +166,6 @@ client is in, plus `joined` (with up to 200 messages of history).
 
 - Only the author of a message can edit or delete it.
 - Reactions accept any emoji of up to 16 characters. The picker offers the
-  standard emoji, without skin tone variants.
+  standard emoji. Emoji with skin tones can be set to one of the five tones with
+  the row at the top of the picker. The choice is saved between runs.
 - There are no direct messages yet.

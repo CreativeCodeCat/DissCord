@@ -32,6 +32,10 @@ fn main() -> eframe::Result {
                 .and_then(|storage| eframe::get_value(storage, app::THEME_KEY))
                 .unwrap_or_default();
             theme::set(theme);
+            let skin_tone = cc
+                .storage
+                .and_then(|storage| eframe::get_value(storage, app::SKIN_TONE_KEY))
+                .unwrap_or(0);
             theme::apply(&cc.egui_ctx);
             egui_extras::install_image_loaders(&cc.egui_ctx);
             let servers = cc
@@ -68,6 +72,7 @@ fn main() -> eframe::Result {
                 remember: true,
                 show_create_box,
                 theme,
+                skin_tone,
                 saved_session,
                 ..Default::default()
             };
@@ -94,6 +99,7 @@ impl eframe::App for DissCordApp {
         eframe::set_value(storage, trust::PINS_KEY, &*trust::PINS.lock().unwrap());
         eframe::set_value(storage, app::CREATE_BOX_KEY, &self.show_create_box);
         eframe::set_value(storage, app::THEME_KEY, &self.theme);
+        eframe::set_value(storage, app::SKIN_TONE_KEY, &self.skin_tone);
         let session = self.stored_session();
         if let Some(saved) = &session {
             if let Err(e) = keychain::store(&saved.name, &saved.token) {

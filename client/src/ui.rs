@@ -2384,7 +2384,7 @@ fn emoji_button(ui: &mut Ui, emoji: &str, size: f32, hover: Option<&str>) -> boo
 /// The emoji picker: a search box and every emoji grouped by category, like a phone keyboard.
 /// Picking one reacts to the message and closes the menu.
 /// Returns true when an emoji was picked.
-fn emoji_picker(ui: &mut Ui, id: i64, actions: &mut Vec<MenuAction>) -> bool {
+fn emoji_picker(ui: &mut Ui, id: i64, tone: usize, actions: &mut Vec<MenuAction>) -> bool {
     let mut picked = false;
     ui.set_width(340.0);
     let search_id = egui::Id::NULL.with("emoji_picker_search");
@@ -2399,6 +2399,32 @@ fn emoji_picker(ui: &mut Ui, id: i64, actions: &mut Vec<MenuAction>) -> bool {
     }
     ui.data_mut(|d| d.insert_temp(search_id, query.clone()));
     let query = query.trim().to_lowercase();
+
+    // The skin tone row. 0 is the default yellow; 1 to 5 are the tones, light to dark. Emoji with
+    // tones show the chosen one. The choice is saved between runs.
+    const TONE_NAMES: [&str; 6] = [
+        "Default",
+        "Light skin tone",
+        "Medium-light skin tone",
+        "Medium skin tone",
+        "Medium-dark skin tone",
+        "Dark skin tone",
+    ];
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+        for (i, name) in TONE_NAMES.iter().enumerate() {
+            let sample = if i == 0 { "👋" } else { common::skin_tone_variants("👋").map_or("👋", |v| v[i - 1]) };
+            let selected = i == tone;
+            let frame = Frame::new()
+                .corner_radius(CornerRadius::same(6))
+                .stroke(egui::Stroke::new(1.5, if selected { pal().accent } else { egui::Color32::TRANSPARENT }));
+            frame.show(ui, |ui| {
+                if emoji_button(ui, sample, 20.0, Some(name)) && i != tone {
+                    actions.push(MenuAction::SetSkinTone(i));
+                }
+            });
+        }
+    });
 
     egui::ScrollArea::vertical()
         .max_height(320.0)
@@ -2420,7 +2446,11 @@ fn emoji_picker(ui: &mut Ui, id: i64, actions: &mut Vec<MenuAction>) -> bool {
                 ui.label(RichText::new(category).small().strong().color(pal().text_muted));
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
-                    for (name, emoji) in emoji {
+                    for (name, base) in emoji {
+                        let emoji = match common::skin_tone_variants(base) {
+                            Some(variants) if tone > 0 => variants[tone - 1],
+                            _ => base,
+                        };
                         if emoji_button(ui, emoji, 24.0, Some(name)) {
                             actions.push(MenuAction::React { id, emoji: emoji.to_string() });
                             picked = true;
@@ -2521,7 +2551,7 @@ fn message_toolbar(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, row: egui::R
                     .inner_margin(Margin::symmetric(6, 6))
                     .show(ui, |ui| match menu {
                         OpenMenu::Picker => {
-                            picked = emoji_picker(ui, m.id, actions);
+                            picked = emoji_picker(ui, m.id, app.skin_tone, actions);
                         }
                         OpenMenu::More | OpenMenu::Context => {
                             ui.set_width(180.0);
