@@ -720,9 +720,10 @@ fn direct_message_list(state: &SharedState, user: &str) -> rusqlite::Result<Vec<
     let conversations = s.db.direct_messages_of(user)?;
     Ok(conversations
         .into_iter()
-        .map(|(channel, other)| DirectMessage {
+        .map(|(channel, other, last_message)| DirectMessage {
             name: names.get(&other).cloned().unwrap_or_else(|| other.clone()),
             channel,
+            last_message,
         })
         .collect())
 }

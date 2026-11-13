@@ -170,6 +170,9 @@ pub struct DirectMessage {
     pub channel: String,
     /// The other member's display name.
     pub name: String,
+    /// When the last message was sent (Unix seconds), or 0 when there is none. Lists are sorted by it.
+    #[serde(default)]
+    pub last_message: u64,
 }
 
 /// Messages sent from server to client.

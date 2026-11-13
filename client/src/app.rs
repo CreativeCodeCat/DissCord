@@ -766,9 +766,8 @@ impl DissCordApp {
                     ServerMsg::Welcome { server_name, .. } => link.server_name = server_name,
                     ServerMsg::DirectMessages { list } => link.dms = list,
                     ServerMsg::Activity { channel } if channel.starts_with("dm-") => {
-                        if !link.dms.iter().any(|d| d.channel == channel) {
-                            ask_refresh.push(link.addr.clone());
-                        }
+                        // New activity can move the conversation up the list, so ask for the list again.
+                        ask_refresh.push(link.addr.clone());
                         link.unread.insert(channel);
                     }
                     _ => {}

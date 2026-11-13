@@ -4,10 +4,10 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use chrono::NaiveDate;
-use common::{ChatMessage, QUICK_REACTIONS};
+use common::{ChatMessage, DirectMessage, QUICK_REACTIONS};
 use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, Frame, Margin, Response, RichText, Sense, TextEdit, Ui};
 
-use crate::app::{DissCordApp, Entry, MenuAction};
+use crate::app::{DissCordApp, DmLink, Entry, MenuAction};
 use crate::discover::FoundServer;
 use crate::theme::*;
 use crate::util::{day_key, day_label, stamp_label, time_label};
@@ -1632,26 +1632,19 @@ fn home(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
                     ui.label(RichText::new(text).color(pal().text_muted));
                 });
             }
-            // Servers in the order of the rail.
-            for server in &app.servers {
-                let Some(link) = app.dm_links.iter().find(|l| l.addr == server.addr) else {
-                    continue;
-                };
-                if link.dms.is_empty() {
-                    continue;
-                }
-                // No server name here: the Direct messages page does not show it.
-                ui.add_space(4.0);
-                for dm in &link.dms {
-                    let here = app.conn.is_some() && app.connected_addr == link.addr;
-                    let selected = here && dm.channel == app.channel;
-                    let unread = !selected && link.unread.contains(&dm.channel);
-                    let label = format!("@ {}", dm.name);
-                    // The row id must be unique across servers, so it includes the address.
-                    let id = format!("dm-{}-{}", link.addr, dm.channel);
-                    if channel_row(ui, &id, &label, selected, unread, actions) && !selected {
-                        actions.push(MenuAction::OpenDmOn { addr: link.addr.clone(), channel: dm.channel.clone() });
-                    }
+            // Every conversation from every server, most recent first.
+            let mut rows: Vec<(&DmLink, &DirectMessage)> =
+                app.dm_links.iter().flat_map(|l| l.dms.iter().map(move |d| (l, d))).collect();
+            rows.sort_by_key(|(_, dm)| std::cmp::Reverse(dm.last_message));
+            for (link, dm) in rows {
+                let here = app.conn.is_some() && app.connected_addr == link.addr;
+                let selected = here && dm.channel == app.channel;
+                let unread = !selected && link.unread.contains(&dm.channel);
+                let label = format!("@ {}", dm.name);
+                // The row id must be unique across servers, so it includes the address.
+                let id = format!("dm-{}-{}", link.addr, dm.channel);
+                if channel_row(ui, &id, &label, selected, unread, actions) && !selected {
+                    actions.push(MenuAction::OpenDmOn { addr: link.addr.clone(), channel: dm.channel.clone() });
                 }
             }
         });

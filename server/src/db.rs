@@ -168,17 +168,24 @@ impl Db {
         Ok(count > 0)
     }
 
-    /// The direct message channels `user` is part of, each with the other member's id.
-    pub fn direct_messages_of(&self, user: &str) -> rusqlite::Result<Vec<(String, String)>> {
+    /// The direct message channels `user` is part of, each with the other member's id and when
+    /// its last message was sent (0 if none). The most recent conversation comes first.
+    pub fn direct_messages_of(&self, user: &str) -> rusqlite::Result<Vec<(String, String, u64)>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, a, b FROM direct_messages WHERE a = ?1 OR b = ?1 ORDER BY id",
+            "SELECT d.id, d.a, d.b, COALESCE(MAX(m.timestamp), 0) AS last
+             FROM direct_messages d
+             LEFT JOIN messages m ON m.channel = 'dm-' || d.id
+             WHERE d.a = ?1 OR d.b = ?1
+             GROUP BY d.id
+             ORDER BY last DESC, d.id DESC",
         )?;
         let rows = stmt.query_map(params![user], |row| {
             let id: i64 = row.get(0)?;
             let a: String = row.get(1)?;
             let b: String = row.get(2)?;
+            let last: i64 = row.get(3)?;
             let other = if a == user { b } else { a };
-            Ok((format!("dm-{id}"), other))
+            Ok((format!("dm-{id}"), other, last as u64))
         })?;
         rows.collect()
     }
@@ -527,7 +534,7 @@ mod tests {
         assert!(!db.is_direct_message_member("general", "alice").unwrap());
 
         assert_eq!(db.member_by_display_name("Bob").unwrap().as_deref(), Some("bob"));
-        assert_eq!(db.direct_messages_of("alice").unwrap(), vec![(dm.clone(), "bob".to_string())]);
+        assert_eq!(db.direct_messages_of("alice").unwrap(), vec![(dm.clone(), "bob".to_string(), 0)]);
         assert!(db.direct_messages_of("carol").unwrap().is_empty());
     }
 
