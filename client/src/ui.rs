@@ -1637,9 +1637,9 @@ fn messages(app: &DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
                         let grouped = prev_author == Some(m.author.as_str())
                             && at.saturating_sub(prev_at) < GROUP_GAP_SECS;
                         if grouped {
-                            compact_message(ui, m);
+                            compact_message(ui, app, m, actions);
                         } else {
-                            full_message(ui, m, actions);
+                            full_message(ui, app, m, actions);
                         }
                         prev_author = Some(m.author.as_str());
                     }
@@ -1678,7 +1678,7 @@ fn day_divider(ui: &mut Ui, at: u64) {
 }
 
 /// A message with avatar, author, and timestamp. Starts a new group.
-fn full_message(ui: &mut Ui, m: &ChatMessage, actions: &mut Vec<MenuAction>) {
+fn full_message(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut Vec<MenuAction>) {
     ui.add_space(12.0);
     hoverable(ui, |ui| {
         ui.horizontal(|ui| {
@@ -1695,25 +1695,67 @@ fn full_message(ui: &mut Ui, m: &ChatMessage, actions: &mut Vec<MenuAction>) {
                     );
                     ui.label(RichText::new(stamp_label(m.timestamp)).small().color(TEXT_MUTED));
                 });
-                ui.label(RichText::new(&m.text).color(TEXT))
-                    .on_hover_text(time_label(m.timestamp));
+                message_text(ui, app, m, actions);
             });
         });
     });
 }
 
 /// A follow-up message from the same author, indented under the group header.
-fn compact_message(ui: &mut Ui, m: &ChatMessage) {
+fn compact_message(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut Vec<MenuAction>) {
     ui.add_space(2.0);
     hoverable(ui, |ui| {
         ui.horizontal(|ui| {
             ui.add_space(AVATAR_INDENT + 16.0);
             ui.vertical(|ui| {
-                ui.label(RichText::new(&m.text).color(TEXT))
-                    .on_hover_text(time_label(m.timestamp));
+                message_text(ui, app, m, actions);
             });
         });
     });
+}
+
+/// The text of a message. Your own messages can be edited from their right-click menu. While a
+/// message is being edited, its text becomes a box: Enter saves, Escape cancels.
+fn message_text(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut Vec<MenuAction>) {
+    if m.id != 0 && app.editing == Some(m.id) {
+        edit_box(ui, m.id, actions);
+        return;
+    }
+    let resp = ui
+        .horizontal(|ui| {
+            let resp = ui.add(egui::Label::new(RichText::new(&m.text).color(TEXT)).sense(Sense::click()));
+            if m.edited {
+                ui.label(RichText::new("(edited)").small().color(TEXT_MUTED));
+            }
+            resp
+        })
+        .inner
+        .on_hover_text(time_label(m.timestamp));
+    if m.id != 0 && m.author == app.user {
+        resp.context_menu(|ui| {
+            if ui.button("Edit message").clicked() {
+                actions.push(MenuAction::StartEdit { id: m.id, text: m.text.clone() });
+                ui.close();
+            }
+        });
+    }
+}
+
+/// The edit box for one message. Its text lives in egui's temporary data, keyed by the message id.
+fn edit_box(ui: &mut Ui, id: i64, actions: &mut Vec<MenuAction>) {
+    let buf_id = crate::app::edit_buffer(id);
+    let mut text = ui.data_mut(|d| d.get_temp::<String>(buf_id)).unwrap_or_default();
+    let resp = ui.add(
+        egui::TextEdit::singleline(&mut text)
+            .id(buf_id)
+            .desired_width(f32::INFINITY),
+    );
+    ui.data_mut(|d| d.insert_temp(buf_id, text));
+    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        actions.push(MenuAction::CancelEdit);
+    } else if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+        actions.push(MenuAction::SaveEdit(id));
+    }
 }
 
 fn system_notice(ui: &mut Ui, text: &str) {

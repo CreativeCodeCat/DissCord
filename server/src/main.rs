@@ -422,14 +422,41 @@ where
                             .await?;
                             continue;
                         }
-                        let message = ChatMessage {
+                        let mut message = ChatMessage {
+                            id: 0,
                             channel: channel.clone(),
                             author: user.clone(),
                             text,
                             timestamp: now_secs(),
+                            edited: false,
                         };
-                        state.lock().unwrap().db.save_message(&message)?;
+                        message.id = state.lock().unwrap().db.save_message(&message)?;
                         let _ = tx.send(ServerMsg::Message { message });
+                    }
+                    ClientMsg::Edit { id, text } => {
+                        let text = text.trim().to_string();
+                        if text.is_empty() {
+                            continue;
+                        }
+                        if text.chars().count() > MAX_TEXT_LEN {
+                            send(&mut writer, &ServerMsg::Error {
+                                text: format!("message longer than {MAX_TEXT_LEN} characters"),
+                            })
+                            .await?;
+                            continue;
+                        }
+                        let edited = state.lock().unwrap().db.edit_message(id, &user, &text)?;
+                        match edited {
+                            Some(channel) => {
+                                let _ = tx.send(ServerMsg::MessageEdited { channel, id, text });
+                            }
+                            None => {
+                                send(&mut writer, &ServerMsg::Error {
+                                    text: "you can only edit your own messages".into(),
+                                })
+                                .await?;
+                            }
+                        }
                     }
                 }
             }
@@ -446,6 +473,9 @@ where
                     }
                     Ok(ServerMsg::System { channel: c, text }) if c == channel => {
                         send(&mut writer, &ServerMsg::System { channel: c, text }).await?;
+                    }
+                    Ok(ServerMsg::MessageEdited { channel: c, id, text }) if c == channel => {
+                        send(&mut writer, &ServerMsg::MessageEdited { channel: c, id, text }).await?;
                     }
                     Ok(presence @ ServerMsg::Presence { .. }) => {
                         send(&mut writer, &presence).await?;
