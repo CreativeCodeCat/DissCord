@@ -105,7 +105,9 @@ fn auth_banner(ui: &mut Ui) -> bool {
 fn top_bar(app: &DissCordApp, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+    // On the Direct messages page the bar shows only the conversation, not the server's name.
     let title = match app.selected_name() {
+        Some(_) if app.is_chat_ready() && app.home => app.channel_label(),
         Some(name) if app.is_chat_ready() => format!("{}  ·  {name}", app.channel_label()),
         _ => "DissCord".to_string(),
     };
