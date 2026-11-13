@@ -96,6 +96,8 @@ pub enum ClientMsg {
     Say { text: String },
     /// Change the text of one of your own messages.
     Edit { id: i64, text: String },
+    /// Delete one of your own messages.
+    Delete { id: i64 },
     /// Request the list of channels.
     ListChannels,
     /// Change the server's name and description. Only the owner may do this.
@@ -142,6 +144,8 @@ pub enum ServerMsg {
     Message { message: ChatMessage },
     /// A message in `channel` now has this text.
     MessageEdited { channel: String, id: i64, text: String },
+    /// A message in `channel` was deleted.
+    MessageDeleted { channel: String, id: i64 },
     Channels { channels: Vec<String> },
     System { channel: String, text: String },
     /// Every member of this server, online or not (sent to everyone on change).

@@ -433,6 +433,20 @@ where
                         message.id = state.lock().unwrap().db.save_message(&message)?;
                         let _ = tx.send(ServerMsg::Message { message });
                     }
+                    ClientMsg::Delete { id } => {
+                        let deleted = state.lock().unwrap().db.delete_message(id, &user)?;
+                        match deleted {
+                            Some(channel) => {
+                                let _ = tx.send(ServerMsg::MessageDeleted { channel, id });
+                            }
+                            None => {
+                                send(&mut writer, &ServerMsg::Error {
+                                    text: "you can only delete your own messages".into(),
+                                })
+                                .await?;
+                            }
+                        }
+                    }
                     ClientMsg::Edit { id, text } => {
                         let text = text.trim().to_string();
                         if text.is_empty() {
@@ -476,6 +490,9 @@ where
                     }
                     Ok(ServerMsg::MessageEdited { channel: c, id, text }) if c == channel => {
                         send(&mut writer, &ServerMsg::MessageEdited { channel: c, id, text }).await?;
+                    }
+                    Ok(ServerMsg::MessageDeleted { channel: c, id }) if c == channel => {
+                        send(&mut writer, &ServerMsg::MessageDeleted { channel: c, id }).await?;
                     }
                     Ok(presence @ ServerMsg::Presence { .. }) => {
                         send(&mut writer, &presence).await?;
