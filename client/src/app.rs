@@ -195,6 +195,8 @@ pub struct DissCordApp {
     pub status: String,
     /// True while the auth service cannot be reached. The top of the window shows a warning.
     pub auth_down: bool,
+    /// The user closed the auth warning. It comes back the next time auth is down.
+    pub auth_banner_closed: bool,
 }
 
 impl DissCordApp {
