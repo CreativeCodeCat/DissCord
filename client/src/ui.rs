@@ -4,10 +4,10 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use chrono::NaiveDate;
-use common::{ChatMessage, DirectMessage, QUICK_REACTIONS};
+use common::{ChatMessage, QUICK_REACTIONS};
 use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, Frame, Margin, Response, RichText, Sense, TextEdit, Ui};
 
-use crate::app::{DissCordApp, DmLink, Entry, MenuAction};
+use crate::app::{DissCordApp, Entry, MenuAction, VIRTUAL_BASE};
 use crate::discover::FoundServer;
 use crate::theme::*;
 use crate::util::{day_key, day_label, stamp_label, time_label};
@@ -1632,32 +1632,58 @@ fn home(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
                     ui.label(RichText::new(text).color(pal().text_muted));
                 });
             }
-            // Every conversation from every server, most recent first.
-            let mut rows: Vec<(&DmLink, &DirectMessage)> =
-                app.dm_links.iter().flat_map(|l| l.dms.iter().map(move |d| (l, d))).collect();
-            rows.sort_by_key(|(_, dm)| std::cmp::Reverse(dm.last_message));
-            for (link, dm) in rows {
-                let here = app.conn.is_some() && app.connected_addr == link.addr;
-                let selected = here && dm.channel == app.channel;
-                let unread = !selected && link.unread.contains(&dm.channel);
-                let label = format!("@ {}", dm.name);
-                // The row id must be unique across servers, so it includes the address.
-                let id = format!("dm-{}-{}", link.addr, dm.channel);
+            // One row per person, across every server, most recent first.
+            let open_person = app.current_person();
+            for person in app.persons() {
+                let selected = open_person.as_deref() == Some(person.id.as_str());
+                let label = format!("@ {}", person.name);
+                // The row id starts with "dm-", so its menu has no copy item.
+                let id = format!("dm-{}", person.id);
+                let unread = !selected && person.unread;
                 if channel_row(ui, &id, &label, selected, unread, actions) && !selected {
-                    actions.push(MenuAction::OpenDmOn { addr: link.addr.clone(), channel: dm.channel.clone() });
+                    actions.push(MenuAction::OpenPerson(person.id.clone()));
                 }
             }
         });
 
-    let open = app.channel.starts_with("dm-");
+    let person = app.current_person();
+    let open = person.is_some() || app.channel.starts_with("dm-");
     egui::Panel::top("dm_header")
         .exact_size(48.0)
         .frame(Frame::new().fill(pal().app_bg))
         .show(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.add_space(16.0);
-                let title = if open { app.channel_label() } else { "Direct messages".to_string() };
+                let title = match &person {
+                    Some(id) => app.person_name(id).map_or_else(|| app.channel_label(), |name| format!("@ {name}")),
+                    None => "Direct messages".to_string(),
+                };
                 ui.label(RichText::new(title).strong().size(16.0).color(pal().text_strong));
+                // With conversations on several servers, choose which one new messages go to.
+                if let Some(id) = &person {
+                    let targets = app.person_targets(id);
+                    if targets.len() > 1 {
+                        ui.add_space(12.0);
+                        let current = app.connected_addr.clone();
+                        let sending_to = targets
+                            .iter()
+                            .find(|t| t.addr == current)
+                            .map_or_else(String::new, |t| t.server.clone());
+                        egui::ComboBox::from_id_salt("dm_server")
+                            .selected_text(format!("Sending to {sending_to}"))
+                            .show_ui(ui, |ui| {
+                                for target in &targets {
+                                    let chosen = target.addr == current;
+                                    if ui.selectable_label(chosen, &target.server).clicked() {
+                                        actions.push(MenuAction::OpenDmOn {
+                                            addr: target.addr.clone(),
+                                            channel: target.channel.clone(),
+                                        });
+                                    }
+                                }
+                            });
+                    }
+                }
             });
         });
 
@@ -2261,18 +2287,67 @@ fn composer(app: &mut DissCordApp, ui: &mut Ui) {
 
 fn messages(app: &DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
     let channel = app.channel.clone();
+    if app.current_person().is_some() {
+        // A conversation with a person: every server's messages with them, in time order.
+        let entries = dm_timeline(app);
+        message_list(app, ui, actions, &format!("person-{}", app.channel), &channel, &entries, None);
+        return;
+    }
     let entries: &[Entry] = app.messages.get(&channel).map(Vec::as_slice).unwrap_or(&[]);
-    let query = app.search.trim().to_lowercase();
     // Where the red "NEW" line goes: the first message that arrived after you left this channel.
     let new_at = app.read_marks.get(&channel).copied();
+    message_list(app, ui, actions, &channel, &channel, entries, new_at);
+}
+
+/// The messages with the open person from every server, merged by time. Each message's id says
+/// which server it is on (see `VIRTUAL_BASE`).
+fn dm_timeline(app: &DissCordApp) -> Vec<Entry> {
+    let Some(person) = app.current_person() else {
+        return Vec::new();
+    };
+    let mut entries = Vec::new();
+    for (index, target) in app.person_targets(&person).iter().enumerate() {
+        let Some(link) = app.dm_links.iter().find(|l| l.addr == target.addr) else {
+            continue;
+        };
+        let Some(history) = link.dm_history.get(&target.channel) else {
+            continue;
+        };
+        for message in history {
+            let mut message = message.clone();
+            if message.id != 0 {
+                message.id += (index as i64 + 1) * VIRTUAL_BASE;
+            }
+            entries.push(Entry::Chat(message));
+        }
+    }
+    entries.sort_by_key(|entry| match entry {
+        Entry::Chat(m) => m.timestamp,
+        Entry::System { at, .. } => *at,
+    });
+    entries
+}
+
+/// The scrolling list of messages. `key` keeps the scroll position apart for each view, and
+/// `channel` names the view in the welcome line.
+fn message_list(
+    app: &DissCordApp,
+    ui: &mut Ui,
+    actions: &mut Vec<MenuAction>,
+    key: &str,
+    channel: &str,
+    entries: &[Entry],
+    new_at: Option<usize>,
+) {
+    let query = app.search.trim().to_lowercase();
 
     egui::ScrollArea::vertical()
-        .id_salt(("messages", &channel))
+        .id_salt(("messages", key))
         .auto_shrink([false, false])
         .stick_to_bottom(true)
         .show(ui, |ui| {
             ui.add_space(16.0);
-            welcome(ui, app, &channel);
+            welcome(ui, app, channel);
 
             if !query.is_empty() && !entries.iter().any(|e| matches_query(e, &query)) {
                 ui.add_space(8.0);

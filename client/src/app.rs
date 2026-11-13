@@ -109,6 +109,8 @@ pub enum MenuAction {
     OpenHome,
     /// Open a direct message on the server with this address.
     OpenDmOn { addr: String, channel: String },
+    /// Open the conversation with a person, on every server.
+    OpenPerson(String),
     SelectServer(usize),
     RemoveServer(usize),
     OpenAddServer,
@@ -130,6 +132,29 @@ pub struct DmLink {
     pub dms: Vec<DirectMessage>,
     /// Conversations with new activity that are not open.
     pub unread: HashSet<String>,
+    /// The history of each direct message on this server, by channel, as last fetched.
+    pub dm_history: HashMap<String, Vec<ChatMessage>>,
+}
+
+/// Message ids in the merged timeline of one person are this base plus the real id, with the
+/// index of the server's conversation added as a multiple of the base. Real ids stay below it.
+pub const VIRTUAL_BASE: i64 = 1_000_000_000_000;
+
+/// One conversation with a person on one server.
+pub struct DmTarget {
+    pub addr: String,
+    pub channel: String,
+    /// The server's name, for the switcher.
+    pub server: String,
+    pub last: u64,
+}
+
+/// One row of the Direct messages list: a person, across every server.
+pub struct PersonRow {
+    pub id: String,
+    pub name: String,
+    pub last: u64,
+    pub unread: bool,
 }
 
 /// How long to wait before trying a server again after its direct messages could not be reached.
@@ -739,6 +764,7 @@ impl DissCordApp {
                         server_name: String::new(),
                         dms: Vec::new(),
                         unread: HashSet::new(),
+                        dm_history: HashMap::new(),
                     });
                 }
                 Err(_) => {
@@ -751,6 +777,7 @@ impl DissCordApp {
     /// Applies what the background connections have delivered.
     pub fn drain_dm_links(&mut self) {
         let mut ask_refresh = Vec::new();
+        let mut ask_fetch: Vec<(String, String)> = Vec::new();
         let mut dropped = Vec::new();
         for link in &mut self.dm_links {
             let mut events = Vec::new();
@@ -765,9 +792,14 @@ impl DissCordApp {
                 match msg {
                     ServerMsg::Welcome { server_name, .. } => link.server_name = server_name,
                     ServerMsg::DirectMessages { list } => link.dms = list,
+                    ServerMsg::DmHistory { channel, messages } => {
+                        link.dm_history.insert(channel, messages);
+                    }
                     ServerMsg::Activity { channel } if channel.starts_with("dm-") => {
-                        // New activity can move the conversation up the list, so ask for the list again.
+                        // New activity can move the conversation up the list, and its history has
+                        // changed, so ask for both again.
                         ask_refresh.push(link.addr.clone());
+                        ask_fetch.push((link.addr.clone(), channel.clone()));
                         link.unread.insert(channel);
                     }
                     _ => {}
@@ -779,6 +811,9 @@ impl DissCordApp {
         }
         for addr in ask_refresh {
             self.send_to_link(&addr, ClientMsg::ListDirectMessages);
+        }
+        for (addr, channel) in ask_fetch {
+            self.send_to_link(&addr, ClientMsg::FetchDm { channel });
         }
         for addr in dropped {
             self.dm_links.retain(|l| l.addr != addr);
@@ -807,10 +842,136 @@ impl DissCordApp {
         self.pending_dm = None;
     }
 
+    /// The person whose conversation is open, if one is. Uses this server's list, which is also
+    /// used right after a new conversation opens.
+    pub fn current_person(&self) -> Option<String> {
+        if self.conn.is_none() || !self.channel.starts_with("dm-") {
+            return None;
+        }
+        let from_link = self
+            .dm_links
+            .iter()
+            .find(|l| l.addr == self.connected_addr)
+            .and_then(|l| l.dms.iter().find(|d| d.channel == self.channel));
+        from_link
+            .or_else(|| self.dms.iter().find(|d| d.channel == self.channel))
+            .map(|d| d.other_id.clone())
+    }
+
+    /// The person a conversation on `addr` is with.
+    fn link_person(&self, addr: &str, channel: &str) -> Option<String> {
+        self.dm_links
+            .iter()
+            .find(|l| l.addr == addr)?
+            .dms
+            .iter()
+            .find(|d| d.channel == channel)
+            .map(|d| d.other_id.clone())
+    }
+
+    /// Every conversation with this person, on every server. The order is stable (by address and
+    /// channel), because message ids in the merged timeline depend on it.
+    pub fn person_targets(&self, other_id: &str) -> Vec<DmTarget> {
+        let mut out = Vec::new();
+        for link in &self.dm_links {
+            for dm in link.dms.iter().filter(|d| d.other_id == other_id) {
+                out.push(DmTarget {
+                    addr: link.addr.clone(),
+                    channel: dm.channel.clone(),
+                    server: self.server_label(&link.addr, &link.server_name),
+                    last: dm.last_message,
+                });
+            }
+        }
+        out.sort_by(|a, b| (a.addr.as_str(), a.channel.as_str()).cmp(&(b.addr.as_str(), b.channel.as_str())));
+        out
+    }
+
+    fn server_label(&self, addr: &str, server_name: &str) -> String {
+        if !server_name.is_empty() {
+            return server_name.to_string();
+        }
+        self.servers.iter().find(|s| s.addr == addr).map_or_else(|| addr.to_string(), |s| s.name.clone())
+    }
+
+    /// The Direct messages list: one row per person, most recent first.
+    pub fn persons(&self) -> Vec<PersonRow> {
+        let mut rows: HashMap<String, PersonRow> = HashMap::new();
+        for link in &self.dm_links {
+            for dm in &link.dms {
+                let row = rows.entry(dm.other_id.clone()).or_insert_with(|| PersonRow {
+                    id: dm.other_id.clone(),
+                    name: dm.name.clone(),
+                    last: 0,
+                    unread: false,
+                });
+                if dm.last_message >= row.last {
+                    row.last = dm.last_message;
+                    row.name = dm.name.clone();
+                }
+                row.unread |= link.unread.contains(&dm.channel);
+            }
+        }
+        let mut rows: Vec<PersonRow> = rows.into_values().collect();
+        rows.sort_by(|a, b| b.last.cmp(&a.last).then_with(|| a.name.cmp(&b.name)));
+        rows
+    }
+
+    /// The name shown for a person.
+    pub fn person_name(&self, other_id: &str) -> Option<String> {
+        self.persons().into_iter().find(|p| p.id == other_id).map(|p| p.name)
+    }
+
+    /// Asks every server for the history of this person's conversations.
+    pub fn fetch_person(&self, other_id: &str) {
+        for target in self.person_targets(other_id) {
+            self.send_to_link(&target.addr, ClientMsg::FetchDm { channel: target.channel });
+        }
+    }
+
+    /// Opens a person's conversation: the one on the server with the most recent message.
+    pub fn open_person(&mut self, other_id: &str, ctx: &egui::Context) {
+        let targets = self.person_targets(other_id);
+        let mut newest: Option<&DmTarget> = None;
+        for target in &targets {
+            if newest.is_none_or(|n| target.last > n.last) {
+                newest = Some(target);
+            }
+        }
+        if let Some(target) = newest {
+            let (addr, channel) = (target.addr.clone(), target.channel.clone());
+            self.home = true;
+            self.open_dm_on(&addr, &channel, ctx);
+        }
+    }
+
+    /// Sends a message action (react, edit, delete) to the server that owns the message. A merged
+    /// timeline id says which conversation it is; other ids go to the connected server. After
+    /// the action, the conversation is fetched again, so the change shows.
+    fn send_to_message(&mut self, id: i64, make: impl FnOnce(i64) -> ClientMsg) {
+        if id < VIRTUAL_BASE {
+            self.send(make(id));
+            return;
+        }
+        let index = (id / VIRTUAL_BASE) as usize - 1;
+        let real = id % VIRTUAL_BASE;
+        let Some(person) = self.current_person() else {
+            return;
+        };
+        let Some(target) = self.person_targets(&person).into_iter().nth(index) else {
+            return;
+        };
+        self.send_to_link(&target.addr, make(real));
+        self.send_to_link(&target.addr, ClientMsg::FetchDm { channel: target.channel });
+    }
+
     /// Opens a direct message on the server it belongs to, switching to that server if needed.
     pub fn open_dm_on(&mut self, addr: &str, channel: &str, ctx: &egui::Context) {
         if let Some(link) = self.dm_links.iter_mut().find(|l| l.addr == addr) {
             link.unread.remove(channel);
+        }
+        if let Some(person) = self.link_person(addr, channel) {
+            self.fetch_person(&person);
         }
         if self.conn.is_some() && self.connected_addr == addr {
             self.join(channel);
@@ -1011,6 +1172,8 @@ impl DissCordApp {
             ServerMsg::Info { .. } | ServerMsg::Peers { .. } => {}
             ServerMsg::Channels { channels } => self.channels = channels,
             ServerMsg::DirectMessages { list } => self.dms = list,
+            // Histories come from the background connections; the main connection ignores them.
+            ServerMsg::DmHistory { .. } => {}
             ServerMsg::Presence { users } => {
                 self.online = users.iter().filter(|u| u.online).map(|u| u.name.clone()).collect();
                 self.offline = users.iter().filter(|u| !u.online).map(|u| u.name.clone()).collect();
@@ -1069,14 +1232,15 @@ impl DissCordApp {
             }
             MenuAction::SaveEdit(id) => {
                 if let Some(text) = ctx.data_mut(|d| d.get_temp::<String>(edit_buffer(id))) {
-                    self.send(ClientMsg::Edit { id, text });
+                    self.send_to_message(id, move |real| ClientMsg::Edit { id: real, text });
                 }
                 self.editing = None;
             }
             MenuAction::CancelEdit => self.editing = None,
             MenuAction::AskDelete(id) => self.pending_delete = Some(id),
-            MenuAction::Delete(id) => self.send(ClientMsg::Delete { id }),
-            MenuAction::React { id, emoji } => self.send(ClientMsg::React { id, emoji }),
+            MenuAction::Delete(id) => self.send_to_message(id, |real| ClientMsg::Delete { id: real }),
+            MenuAction::React { id, emoji } => self.send_to_message(id, move |real| ClientMsg::React { id: real, emoji }),
+            MenuAction::OpenPerson(other_id) => self.open_person(&other_id, ctx),
             MenuAction::Mention(name) => {
                 self.input.push_str(&format!("@{name} "));
                 self.focus_input = true;

@@ -149,6 +149,9 @@ pub enum ClientMsg {
     OpenDm { name: String },
     /// Ask for the direct messages you are part of. Answered with `ServerMsg::DirectMessages`.
     ListDirectMessages,
+    /// Ask for the history of one direct message you are part of, without joining it. Answered
+    /// with `ServerMsg::DmHistory`.
+    FetchDm { channel: String },
     /// End this connection's session on this server, so its token stops working here even if
     /// the auth service cannot be reached. The server then closes the connection.
     Logout,
@@ -173,6 +176,9 @@ pub struct DirectMessage {
     /// When the last message was sent (Unix seconds), or 0 when there is none. Lists are sorted by it.
     #[serde(default)]
     pub last_message: u64,
+    /// The other member's hidden account id. The same person has the same id on every server.
+    #[serde(default)]
+    pub other_id: String,
 }
 
 /// Messages sent from server to client.
@@ -218,6 +224,8 @@ pub enum ServerMsg {
     Channels { channels: Vec<String> },
     /// The direct messages this account is part of. `name` is the other member's display name.
     DirectMessages { list: Vec<DirectMessage> },
+    /// The history of a direct message, as asked for with `ClientMsg::FetchDm`.
+    DmHistory { channel: String, messages: Vec<ChatMessage> },
     System { channel: String, text: String },
     /// Every member of this server, online or not (sent to everyone on change).
     Presence { users: Vec<UserStatus> },
