@@ -1603,7 +1603,7 @@ fn channel_sidebar(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAct
                 let arrow_icon = if app.channels_collapsed { Icon::ChevronRight } else { Icon::ChevronDown };
                 paint_icon(ui.painter(), rect.center(), arrow_icon, pal().text_muted);
                 let heading = ui.add(
-                    egui::Label::new(RichText::new("pal().text CHANNELS").small().strong().color(pal().text_muted))
+                    egui::Label::new(RichText::new("TEXT CHANNELS").small().strong().color(pal().text_muted))
                         .sense(Sense::click()),
                 );
                 if arrow.clicked() || heading.clicked() {
