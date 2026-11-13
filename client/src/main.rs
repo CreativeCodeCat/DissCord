@@ -1,6 +1,7 @@
 mod app;
 mod auth_client;
 mod discover;
+mod emoji_images;
 mod net;
 mod theme;
 mod trust;

@@ -85,6 +85,7 @@ pub enum Entry {
 pub enum MenuAction {
     StartEdit { id: i64, text: String },
     Delete(i64),
+    React { id: i64, emoji: String },
     SaveEdit(i64),
     CancelEdit,
     Mention(String),
@@ -583,6 +584,17 @@ impl DissCordApp {
                     .or_default()
                     .push(Entry::Chat(message));
             }
+            ServerMsg::Reactions { channel, id, reactions } => {
+                let entry = self.messages.get_mut(&channel).and_then(|list| {
+                    list.iter_mut().find_map(|e| match e {
+                        Entry::Chat(m) if m.id == id => Some(m),
+                        _ => None,
+                    })
+                });
+                if let Some(m) = entry {
+                    m.reactions = reactions;
+                }
+            }
             ServerMsg::MessageDeleted { channel, id } => {
                 if let Some(list) = self.messages.get_mut(&channel) {
                     list.retain(|e| !matches!(e, Entry::Chat(m) if m.id == id));
@@ -676,6 +688,7 @@ impl DissCordApp {
             }
             MenuAction::CancelEdit => self.editing = None,
             MenuAction::Delete(id) => self.send(ClientMsg::Delete { id }),
+            MenuAction::React { id, emoji } => self.send(ClientMsg::React { id, emoji }),
             MenuAction::Mention(name) => {
                 self.input.push_str(&format!("@{name} "));
                 self.focus_input = true;

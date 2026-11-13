@@ -4,7 +4,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use chrono::NaiveDate;
-use common::ChatMessage;
+use common::{ChatMessage, QUICK_REACTIONS};
 use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, Frame, Margin, Response, RichText, Sense, TextEdit, Ui};
 
 use crate::app::{DissCordApp, Entry, MenuAction};
@@ -1773,7 +1773,7 @@ fn day_divider(ui: &mut Ui, at: u64) {
 /// A message with avatar, author, and timestamp. Starts a new group.
 fn full_message(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut Vec<MenuAction>) {
     ui.add_space(12.0);
-    hoverable(ui, |ui| {
+    message_row(ui, app, m, actions, |ui, actions| {
         ui.horizontal(|ui| {
             ui.add_space(16.0);
             avatar(ui, &m.author, 40.0, None);
@@ -1797,7 +1797,7 @@ fn full_message(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut V
 /// A follow-up message from the same author, indented under the group header.
 fn compact_message(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut Vec<MenuAction>) {
     ui.add_space(2.0);
-    hoverable(ui, |ui| {
+    message_row(ui, app, m, actions, |ui, actions| {
         ui.horizontal(|ui| {
             ui.add_space(AVATAR_INDENT + 16.0);
             ui.vertical(|ui| {
@@ -1805,6 +1805,185 @@ fn compact_message(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mu
             });
         });
     });
+}
+
+/// One message row. When the pointer is over it, the row is shaded and a small toolbar floats at
+/// its top right: quick reactions, an emoji picker and a "more" menu.
+fn message_row(
+    ui: &mut Ui,
+    app: &DissCordApp,
+    m: &ChatMessage,
+    actions: &mut Vec<MenuAction>,
+    body: impl FnOnce(&mut Ui, &mut Vec<MenuAction>),
+) {
+    let background = ui.painter().add(egui::Shape::Noop);
+    let rect = ui.scope(|ui| body(ui, actions)).response.rect;
+    let full = egui::Rect::from_min_max(
+        egui::pos2(ui.max_rect().left(), rect.top()),
+        egui::pos2(ui.max_rect().right(), rect.bottom()),
+    );
+    // The toolbar hangs over the row's edge, so the row stays hovered while the pointer is on the
+    // toolbar (its rect from the last frame) or while one of its menus is open.
+    let key = egui::Id::NULL.with(("message_toolbar_rect", m.id));
+    let previous: Option<egui::Rect> = ui.ctx().data(|d| d.get_temp(key));
+    // Plain rectangle tests: the toolbar sits on a layer above the row, and the row's own test
+    // would say the pointer is not over it.
+    let pointer = ui.ctx().pointer_hover_pos();
+    let over_toolbar = matches!((previous, pointer), (Some(r), Some(p)) if r.contains(p));
+    let over_row = pointer.is_some_and(|p| full.contains(p));
+    let menu_open = previous.is_some() && egui::Popup::is_any_open(ui.ctx());
+    if over_row || over_toolbar || menu_open {
+        ui.painter().set(background, egui::Shape::rect_filled(full, CornerRadius::ZERO, HOVER_BG));
+        if m.id != 0 {
+            let toolbar = message_toolbar(ui, app, m, full, actions);
+            ui.ctx().data_mut(|d| d.insert_temp(key, toolbar));
+        }
+    } else {
+        ui.ctx().data_mut(|d| d.remove::<egui::Rect>(key));
+    }
+}
+
+/// The colour image for an emoji, drawn at `size` points square. `None` when there is no image.
+fn emoji_image(emoji: &str, size: f32) -> Option<egui::Image<'static>> {
+    let bytes = crate::emoji_images::svg(emoji)?;
+    let key: Vec<String> = emoji
+        .chars()
+        .filter(|c| *c != '\u{fe0f}')
+        .map(|c| format!("{:x}", c as u32))
+        .collect();
+    let uri = format!("bytes://emoji/{}.svg", key.join("-"));
+    Some(egui::Image::from_bytes(uri, bytes).fit_to_exact_size(egui::vec2(size, size)))
+}
+
+/// An emoji as a borderless button: its colour image, or the text when there is no image.
+/// Returns true when it was clicked. `hover` is shown as a tooltip.
+fn emoji_button(ui: &mut Ui, emoji: &str, size: f32, hover: Option<&str>) -> bool {
+    let button = match emoji_image(emoji, size) {
+        Some(image) => egui::Button::image(image),
+        None => egui::Button::new(RichText::new(emoji).size(size)),
+    }
+    .frame(false)
+    .min_size(egui::vec2(size + 8.0, size + 8.0));
+    let resp = ui.add(button);
+    let resp = match hover {
+        Some(text) => resp.on_hover_text(text),
+        None => resp,
+    };
+    resp.clicked()
+}
+
+/// The emoji picker: a search box and every emoji grouped by category, like a phone keyboard.
+/// Picking one reacts to the message and closes the menu.
+fn emoji_picker(ui: &mut Ui, id: i64, actions: &mut Vec<MenuAction>) {
+    ui.set_width(340.0);
+    let search_id = egui::Id::NULL.with("emoji_picker_search");
+    let mut query: String = ui.data(|d| d.get_temp(search_id)).unwrap_or_default();
+    let resp = ui.add(
+        egui::TextEdit::singleline(&mut query)
+            .hint_text("Search emoji")
+            .desired_width(f32::INFINITY),
+    );
+    if !resp.has_focus() && !resp.lost_focus() {
+        resp.request_focus();
+    }
+    ui.data_mut(|d| d.insert_temp(search_id, query.clone()));
+    let query = query.trim().to_lowercase();
+
+    egui::ScrollArea::vertical()
+        .max_height(320.0)
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            let matches = |name: &str| query.is_empty() || name.to_lowercase().contains(query.as_str());
+            let mut shown = false;
+            for category in emoji_categories() {
+                let emoji: Vec<(&str, &str)> = common::emoji_data::EMOJI
+                    .iter()
+                    .filter(|(c, name, _)| *c == category && matches(name))
+                    .map(|(_, name, e)| (*name, *e))
+                    .collect();
+                if emoji.is_empty() {
+                    continue;
+                }
+                shown = true;
+                ui.add_space(6.0);
+                ui.label(RichText::new(category).small().strong().color(TEXT_MUTED));
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+                    for (name, emoji) in emoji {
+                        if emoji_button(ui, emoji, 24.0, Some(name)) {
+                            actions.push(MenuAction::React { id, emoji: emoji.to_string() });
+                            ui.close();
+                        }
+                    }
+                });
+            }
+            if !shown {
+                ui.label(RichText::new("No emoji match.").color(TEXT_MUTED));
+            }
+        });
+}
+
+/// The emoji categories, in the order they appear in the data.
+fn emoji_categories() -> Vec<&'static str> {
+    let mut categories: Vec<&'static str> = Vec::new();
+    for (category, _, _) in common::emoji_data::EMOJI {
+        if !categories.contains(category) {
+            categories.push(category);
+        }
+    }
+    categories
+}
+
+/// The floating toolbar at the top right of a hovered message.
+fn message_toolbar(
+    ui: &mut Ui,
+    app: &DissCordApp,
+    m: &ChatMessage,
+    row: egui::Rect,
+    actions: &mut Vec<MenuAction>,
+) -> egui::Rect {
+    let area = egui::Area::new(egui::Id::NULL.with(("message_toolbar", m.id)))
+        .order(egui::Order::Foreground)
+        // Show at full strength at once. A fade-in would leave the toolbar looking washed out.
+        .fade_in(false)
+        .pivot(egui::Align2::RIGHT_TOP)
+        .fixed_pos(row.right_top() + egui::vec2(-16.0, -6.0))
+        .show(ui.ctx(), |ui| {
+            Frame::new()
+                .fill(SIDEBAR_BG)
+                .stroke(egui::Stroke::new(1.0, HOVER_BG))
+                .corner_radius(CornerRadius::same(6))
+                .inner_margin(Margin::symmetric(4, 2))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        for emoji in QUICK_REACTIONS {
+                            if emoji_button(ui, emoji, 20.0, None) {
+                                actions.push(MenuAction::React { id: m.id, emoji: emoji.to_string() });
+                            }
+                        }
+                        // A grey smile, like the add-reaction button in Discord.
+                        let picker = ui.add(
+                            egui::Button::new(RichText::new("☺").size(20.0).color(TEXT_MUTED)).frame(false),
+                        );
+                        egui::Popup::menu(&picker).show(|ui| emoji_picker(ui, m.id, actions));
+                        // Edit and delete are only offered for your own messages.
+                        if m.author == app.user {
+                            let more = ui.add(egui::Button::new(RichText::new("⋯").strong().color(TEXT_MUTED)).frame(false));
+                            egui::Popup::menu(&more).show(|ui| {
+                                if ui.button("Edit message").clicked() {
+                                    actions.push(MenuAction::StartEdit { id: m.id, text: m.text.clone() });
+                                    ui.close();
+                                }
+                                if ui.button("Delete message").clicked() {
+                                    actions.push(MenuAction::Delete(m.id));
+                                    ui.close();
+                                }
+                            });
+                        }
+                    });
+                });
+        });
+    area.response.rect
 }
 
 /// The text of a message. Your own messages can be edited from their right-click menu. While a
@@ -1824,15 +2003,40 @@ fn message_text(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut V
         })
         .inner
         .on_hover_text(time_label(m.timestamp));
-    if m.id != 0 && m.author == app.user {
+    if m.id != 0 {
         resp.context_menu(|ui| {
-            if ui.button("Edit message").clicked() {
-                actions.push(MenuAction::StartEdit { id: m.id, text: m.text.clone() });
-                ui.close();
+            emoji_picker(ui, m.id, actions);
+            if m.author == app.user {
+                ui.separator();
+                if ui.button("Edit message").clicked() {
+                    actions.push(MenuAction::StartEdit { id: m.id, text: m.text.clone() });
+                    ui.close();
+                }
+                if ui.button("Delete message").clicked() {
+                    actions.push(MenuAction::Delete(m.id));
+                    ui.close();
+                }
             }
-            if ui.button("Delete message").clicked() {
-                actions.push(MenuAction::Delete(m.id));
-                ui.close();
+        });
+    }
+    if !m.reactions.is_empty() {
+        ui.add_space(4.0);
+        ui.horizontal_wrapped(|ui| {
+            for reaction in &m.reactions {
+                let mine = reaction.users.iter().any(|u| u == &app.user);
+                let fill = if mine { ACCENT.gamma_multiply(0.45) } else { HOVER_BG };
+                let count = RichText::new(reaction.users.len().to_string()).small().color(TEXT_STRONG);
+                let chip = match emoji_image(&reaction.emoji, 16.0) {
+                    Some(image) => egui::Button::image_and_text(image, count),
+                    None => egui::Button::new(RichText::new(format!("{}  {}", reaction.emoji, reaction.users.len()))),
+                }
+                .fill(fill)
+                    .corner_radius(CornerRadius::same(8))
+                    .stroke(egui::Stroke::new(1.0, if mine { ACCENT } else { HOVER_BG }))
+                    .min_size(egui::vec2(0.0, 22.0));
+                if ui.add(chip).on_hover_text(reaction.users.join(", ")).clicked() {
+                    actions.push(MenuAction::React { id: m.id, emoji: reaction.emoji.clone() });
+                }
             }
         });
     }

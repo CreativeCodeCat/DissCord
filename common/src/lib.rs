@@ -42,6 +42,22 @@ pub enum AuthReply {
     Error { text: String },
 }
 
+pub mod emoji_data;
+
+/// The quick reactions on a message's toolbar.
+pub const QUICK_REACTIONS: [&str; 3] = ["👍", "❤️", "😂"];
+
+/// True for a reaction the server accepts: any emoji, as a short run of visible characters.
+pub fn is_reaction(emoji: &str) -> bool {
+    !emoji.is_empty() && emoji.chars().count() <= 16 && emoji.chars().all(|c| !c.is_control() && !c.is_whitespace())
+}
+/// One emoji on a message, and who reacted with it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Reaction {
+    pub emoji: String,
+    pub users: Vec<String>,
+}
+
 /// A single chat message as stored and broadcast by the server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
@@ -56,6 +72,9 @@ pub struct ChatMessage {
     /// True once the author has edited the message.
     #[serde(default)]
     pub edited: bool,
+    /// Reactions on the message, in the order they were first added.
+    #[serde(default)]
+    pub reactions: Vec<Reaction>,
 }
 
 /// A member of a server and whether they are connected right now.
@@ -98,6 +117,8 @@ pub enum ClientMsg {
     Edit { id: i64, text: String },
     /// Delete one of your own messages.
     Delete { id: i64 },
+    /// Add your reaction to a message, or take it off if it is already there.
+    React { id: i64, emoji: String },
     /// Request the list of channels.
     ListChannels,
     /// Change the server's name and description. Only the owner may do this.
@@ -146,6 +167,8 @@ pub enum ServerMsg {
     MessageEdited { channel: String, id: i64, text: String },
     /// A message in `channel` was deleted.
     MessageDeleted { channel: String, id: i64 },
+    /// The reactions on a message in `channel` now look like this.
+    Reactions { channel: String, id: i64, reactions: Vec<Reaction> },
     Channels { channels: Vec<String> },
     System { channel: String, text: String },
     /// Every member of this server, online or not (sent to everyone on change).

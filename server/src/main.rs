@@ -434,9 +434,25 @@ where
                             text,
                             timestamp: now_secs(),
                             edited: false,
+                            reactions: Vec::new(),
                         };
                         message.id = state.lock().unwrap().db.save_message(&message)?;
                         let _ = tx.send(ServerMsg::Message { message });
+                    }
+                    ClientMsg::React { id, emoji } => {
+                        if !common::is_reaction(&emoji) {
+                            send(&mut writer, &ServerMsg::Error { text: "that reaction is not allowed".into() }).await?;
+                            continue;
+                        }
+                        let result = state.lock().unwrap().db.toggle_reaction(id, &emoji, &user)?;
+                        match result {
+                            Some((channel, reactions)) => {
+                                let _ = tx.send(ServerMsg::Reactions { channel, id, reactions });
+                            }
+                            None => {
+                                send(&mut writer, &ServerMsg::Error { text: "that message no longer exists".into() }).await?;
+                            }
+                        }
                     }
                     ClientMsg::Delete { id } => {
                         let deleted = state.lock().unwrap().db.delete_message(id, &user)?;
@@ -498,6 +514,9 @@ where
                     }
                     Ok(ServerMsg::MessageDeleted { channel: c, id }) if c == channel => {
                         send(&mut writer, &ServerMsg::MessageDeleted { channel: c, id }).await?;
+                    }
+                    Ok(ServerMsg::Reactions { channel: c, id, reactions }) if c == channel => {
+                        send(&mut writer, &ServerMsg::Reactions { channel: c, id, reactions }).await?;
                     }
                     Ok(presence @ ServerMsg::Presence { .. }) => {
                         send(&mut writer, &presence).await?;

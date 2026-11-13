@@ -20,6 +20,12 @@ CREATE TABLE IF NOT EXISTS server_info (
 CREATE TABLE IF NOT EXISTS channels (
     name TEXT PRIMARY KEY
 );
+CREATE TABLE IF NOT EXISTS reactions (
+    message_id INTEGER NOT NULL,
+    emoji      TEXT NOT NULL,
+    user       TEXT NOT NULL,
+    PRIMARY KEY (message_id, emoji, user)
+);
 CREATE TABLE IF NOT EXISTS session_cache (
     token    TEXT PRIMARY KEY,
     name     TEXT NOT NULL,
@@ -260,9 +266,63 @@ impl Db {
             )
             .optional()?;
         if channel.is_some() {
+            self.conn.execute("DELETE FROM reactions WHERE message_id = ?1", params![id])?;
             self.conn.execute("DELETE FROM messages WHERE id = ?1", params![id])?;
         }
         Ok(channel)
+    }
+
+    /// Adds `user`'s reaction to a message, or removes it if they already reacted with that emoji.
+    /// Returns the message's channel and its reactions afterwards, or `None` if there is no such
+    /// message.
+    pub fn toggle_reaction(
+        &self,
+        id: i64,
+        emoji: &str,
+        user: &str,
+    ) -> rusqlite::Result<Option<(String, Vec<common::Reaction>)>> {
+        use rusqlite::OptionalExtension;
+        let channel: Option<String> = self
+            .conn
+            .query_row("SELECT channel FROM messages WHERE id = ?1", params![id], |row| row.get(0))
+            .optional()?;
+        let Some(channel) = channel else {
+            return Ok(None);
+        };
+        let exists = self.conn.execute(
+            "DELETE FROM reactions WHERE message_id = ?1 AND emoji = ?2 AND user = ?3",
+            params![id, emoji, user],
+        )?;
+        if exists == 0 {
+            self.conn.execute(
+                "INSERT INTO reactions (message_id, emoji, user) VALUES (?1, ?2, ?3)",
+                params![id, emoji, user],
+            )?;
+        }
+        Ok(Some((channel, self.reactions_for(&[id])?.remove(&id).unwrap_or_default())))
+    }
+
+    /// Reactions for the given messages, keyed by message id. Each emoji appears once, in the
+    /// order it was first added.
+    fn reactions_for(&self, ids: &[i64]) -> rusqlite::Result<std::collections::HashMap<i64, Vec<common::Reaction>>> {
+        let mut out: std::collections::HashMap<i64, Vec<common::Reaction>> = Default::default();
+        if ids.is_empty() {
+            return Ok(out);
+        }
+        let list = ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",");
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT message_id, emoji, user FROM reactions WHERE message_id IN ({list}) ORDER BY rowid"
+        ))?;
+        let rows = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))?;
+        for row in rows {
+            let (message, emoji, user) = row?;
+            let reactions = out.entry(message).or_default();
+            match reactions.iter_mut().find(|r| r.emoji == emoji) {
+                Some(r) => r.users.push(user),
+                None => reactions.push(common::Reaction { emoji, users: vec![user] }),
+            }
+        }
+        Ok(out)
     }
 
     /// Changes the text of a message, but only when `author` wrote it. Returns the message's
@@ -297,8 +357,15 @@ impl Db {
                 text: row.get(3)?,
                 timestamp: row.get::<_, i64>(4)? as u64,
                 edited: row.get::<_, i64>(5)? != 0,
+                reactions: Vec::new(),
             })
         })?;
-        rows.collect()
+        let mut messages: Vec<ChatMessage> = rows.collect::<rusqlite::Result<_>>()?;
+        let ids: Vec<i64> = messages.iter().map(|m| m.id).collect();
+        let mut reactions = self.reactions_for(&ids)?;
+        for m in &mut messages {
+            m.reactions = reactions.remove(&m.id).unwrap_or_default();
+        }
+        Ok(messages)
     }
 }
