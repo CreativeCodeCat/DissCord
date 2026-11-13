@@ -773,48 +773,104 @@ fn add_server_dialog(app: &mut DissCordApp, ctx: &egui::Context) {
     if !app.show_add_server {
         return;
     }
-    let mut open = true;
+    let mut close = false;
     let mut submit = false;
-    egui::Window::new("Add a server")
-        .open(&mut open)
+    let mut find = false;
+    egui::Window::new("Join a Server")
+        .title_bar(false)
         .collapsible(false)
         .resizable(false)
-        .default_width(360.0)
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .default_width(440.0)
+        .frame(Frame::new().fill(SIDEBAR_BG).corner_radius(CornerRadius::same(8)).inner_margin(Margin::same(24)))
         .show(ctx, |ui| {
-            ui.label(RichText::new("Enter the address of a DissCord server.").color(TEXT_MUTED));
-            ui.add_space(8.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                close |= close_button(ui);
+            });
+            ui.vertical_centered(|ui| {
+                ui.label(RichText::new("Join a Server").size(22.0).strong().color(TEXT_STRONG));
+                ui.add_space(4.0);
+                ui.label(RichText::new("Enter an address below to join an existing server").color(TEXT));
+            });
+            ui.add_space(20.0);
 
-            field_label(ui, "SERVER NAME");
-            ui.add(
-                TextEdit::singleline(&mut app.add_name)
-                    .hint_text("My server")
-                    .desired_width(f32::INFINITY),
-            );
-            ui.add_space(8.0);
-
-            field_label(ui, "SERVER ADDRESS");
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Server address").strong().color(TEXT_STRONG));
+                ui.label(RichText::new("*").strong().color(RED));
+            });
+            ui.add_space(4.0);
             let resp = ui.add(
                 TextEdit::singleline(&mut app.add_addr)
                     .hint_text(DEFAULT_ADDR)
+                    .margin(Margin::symmetric(10, 10))
                     .desired_width(f32::INFINITY),
             );
             submit |= enter_pressed(ui, &resp);
+            ui.add_space(8.0);
+            ui.label(RichText::new("Addresses should look like").small().color(TEXT_MUTED));
+            ui.add_space(4.0);
+            ui.horizontal_wrapped(|ui| {
+                for example in [DEFAULT_ADDR, "192.168.1.20:7878"] {
+                    Frame::new()
+                        .fill(HOVER_BG)
+                        .corner_radius(CornerRadius::same(4))
+                        .inner_margin(Margin::symmetric(8, 4))
+                        .show(ui, |ui| {
+                            ui.label(RichText::new(example).small().color(TEXT));
+                        });
+                }
+            });
 
             if let Some(err) = &app.add_error {
                 ui.add_space(8.0);
                 ui.label(RichText::new(err).color(RED));
             }
-            ui.add_space(12.0);
-            let button = egui::Button::new(RichText::new("Add server").strong().color(TEXT_STRONG))
-                .fill(ACCENT)
-                .min_size(egui::vec2(ui.available_width(), 36.0));
-            if ui.add(button).clicked() {
-                submit = true;
+
+            ui.add_space(20.0);
+            let frame = Frame::new()
+                .fill(RAIL_BG)
+                .corner_radius(CornerRadius::same(8))
+                .inner_margin(Margin::symmetric(12, 10));
+            let card = frame.show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new("Don't have an address?").strong().color(TEXT_STRONG));
+                        ui.label(
+                            RichText::new("Find servers on your network and the internet").small().color(TEXT),
+                        );
+                    });
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(RichText::new("›").size(20.0).color(TEXT_MUTED));
+                    });
+                });
+            });
+            if ui.interact(card.response.rect, ui.scope_id().with("find_servers"), Sense::click()).clicked() {
+                find = true;
             }
+
+            ui.add_space(20.0);
+            ui.horizontal(|ui| {
+                if ui.add(egui::Button::new(RichText::new("Back").color(LINK)).frame(false)).clicked() {
+                    close = true;
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let button = egui::Button::new(RichText::new("Join Server").strong().color(TEXT_STRONG))
+                        .fill(ACCENT)
+                        .min_size(egui::vec2(132.0, 40.0));
+                    if ui.add(button).clicked() {
+                        submit = true;
+                    }
+                });
+            });
         });
 
-    if !open {
+    if close {
         app.show_add_server = false;
+    }
+    if find {
+        app.show_add_server = false;
+        app.open_discover(ctx);
     }
     if submit {
         app.add_server(ctx);

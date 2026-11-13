@@ -118,7 +118,6 @@ pub struct DissCordApp {
 
     // "Add a server" dialog
     pub show_add_server: bool,
-    pub add_name: String,
     pub add_addr: String,
     pub add_error: Option<String>,
 
@@ -464,17 +463,14 @@ impl DissCordApp {
             "" => DEFAULT_ADDR.to_string(),
             a => a.to_string(),
         };
-        let name = match self.add_name.trim() {
-            "" => addr.clone(),
-            n => n.to_string(),
-        };
+        // The server sends its own name when we connect, so the address is the first label.
+        let name = addr.clone();
         if self.servers.iter().any(|s| s.addr == addr) {
             self.add_error = Some("That server is already in your list.".into());
             return;
         }
         self.servers.push(SavedServer { name, addr, icon: None });
         self.show_add_server = false;
-        self.add_name.clear();
         self.add_addr.clear();
         self.add_error = None;
         self.select_server(self.servers.len() - 1, ctx);
