@@ -216,18 +216,22 @@ pub fn name_color(name: &str) -> Color32 {
     palette.avatars[hash as usize % palette.avatars.len()]
 }
 
-/// Loads the bundled Open Sans for all text. egui's own fonts stay behind it as fallbacks.
+/// Loads the bundled Open Sans for all text. Noto Sans (a subset with Latin, IPA and small capital
+/// letters) comes next for characters Open Sans lacks, such as the small capitals in server names.
+/// egui's own fonts stay behind them as fallbacks.
 fn install_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     fonts.font_data.insert(
         "open_sans".into(),
         Arc::new(egui::FontData::from_static(include_bytes!("../assets/fonts/OpenSans-Regular.ttf"))),
     );
-    fonts
-        .families
-        .entry(egui::FontFamily::Proportional)
-        .or_default()
-        .insert(0, "open_sans".into());
+    fonts.font_data.insert(
+        "noto_sans".into(),
+        Arc::new(egui::FontData::from_static(include_bytes!("../assets/fonts/NotoSans-Subset.ttf"))),
+    );
+    let family = fonts.families.entry(egui::FontFamily::Proportional).or_default();
+    family.insert(0, "noto_sans".into());
+    family.insert(0, "open_sans".into());
     ctx.set_fonts(fonts);
 }
 
