@@ -82,7 +82,17 @@ fn main() -> anyhow::Result<()> {
 }
 
 async fn run() -> anyhow::Result<()> {
-    let mut args = std::env::args().skip(1);
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    // `server forget-auth-pin [DB_PATH]`: after the auth service is reset on purpose, forget its
+    // old certificate so this server accepts the new one. Run it while the server is stopped or
+    // not; the next connection to the auth service remembers the new certificate.
+    if argv.first().map(String::as_str) == Some("forget-auth-pin") {
+        let db_path = argv.get(1).cloned().unwrap_or_else(|| DEFAULT_DB_PATH.to_string());
+        let removed = Db::open(&db_path)?.forget_auth_pins()?;
+        println!("forgot {removed} remembered auth service certificate(s) in {db_path}");
+        return Ok(());
+    }
+    let mut args = argv.into_iter();
     let addr = args.next().unwrap_or_else(|| DEFAULT_ADDR.to_string());
     let db_path = args.next().unwrap_or_else(|| DEFAULT_DB_PATH.to_string());
     let auth_addr = args.next().unwrap_or_else(|| DEFAULT_AUTH_ADDR.to_string());

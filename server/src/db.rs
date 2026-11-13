@@ -167,6 +167,11 @@ impl Db {
             .optional()
     }
 
+    /// Forgets the auth service certificates this server remembers. Returns how many were removed.
+    pub fn forget_auth_pins(&self) -> rusqlite::Result<usize> {
+        self.conn.execute("DELETE FROM server_info WHERE key LIKE 'pin:auth:%'", [])
+    }
+
     pub fn set_server_info(&self, key: &str, value: &str) -> rusqlite::Result<()> {
         self.conn.execute(
             "INSERT INTO server_info (key, value) VALUES (?1, ?2)
