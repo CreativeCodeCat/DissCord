@@ -1,0 +1,15 @@
+[package]
+name = "client"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+base64 = "0.22"
+chrono = "0.4.45"
+common = { path = "../common" }
+eframe = { version = "0.37.0", features = ["persistence"] }
+egui_extras = { version = "0.37.0", features = ["image", "svg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+rfd = "0.15"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1"
