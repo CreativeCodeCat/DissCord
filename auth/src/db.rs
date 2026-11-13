@@ -1,6 +1,7 @@
 //! SQLite storage for accounts and login sessions.
 
 use rusqlite::{params, Connection, ErrorCode, OptionalExtension};
+use sha2::{Digest, Sha256};
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS accounts (
@@ -29,20 +30,61 @@ pub struct Account {
 
 pub struct Db {
     conn: Connection,
+    /// Secret that emails are hashed with. It lives in a file beside the database.
+    key: [u8; 32],
+}
+
+/// Hashes an email (already trimmed and lowercased) with the secret key. The result is what is
+/// stored in place of the address, so the database alone does not reveal anyone's email.
+fn hash_email(key: &[u8; 32], email: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(key);
+    hasher.update(email.as_bytes());
+    hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 impl Db {
-    pub fn open(path: &str) -> rusqlite::Result<Self> {
+    pub fn open(path: &str, key: [u8; 32]) -> rusqlite::Result<Self> {
         let conn = Connection::open(path)?;
         conn.execute_batch(SCHEMA)?;
-        Ok(Self { conn })
+        Ok(Self { conn, key })
+    }
+
+    /// Accounts and sessions still holding a plain email (from before emails were hashed) are
+    /// rewritten as hashes. Returns how many addresses were converted.
+    pub fn hash_plain_emails(&mut self) -> rusqlite::Result<usize> {
+        let plain: Vec<String> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT email FROM accounts WHERE instr(email, '@') > 0
+                 UNION SELECT email FROM sessions WHERE instr(email, '@') > 0",
+            )?;
+            let rows = stmt.query_map([], |row| row.get(0))?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        let tx = self.conn.transaction()?;
+        for email in &plain {
+            let hashed = hash_email(&self.key, email);
+            tx.execute("UPDATE accounts SET email = ?1 WHERE email = ?2", params![hashed, email])?;
+            tx.execute("UPDATE sessions SET email = ?1 WHERE email = ?2", params![hashed, email])?;
+        }
+        tx.commit()?;
+        Ok(plain.len())
+    }
+
+    /// Accounts whose email is already hashed. These need the key file to log in.
+    pub fn hashed_account_count(&self) -> rusqlite::Result<i64> {
+        self.conn.query_row(
+            "SELECT COUNT(*) FROM accounts WHERE instr(email, '@') = 0",
+            [],
+            |row| row.get(0),
+        )
     }
 
     pub fn find_account(&self, email: &str) -> rusqlite::Result<Option<Account>> {
         self.conn
             .query_row(
                 "SELECT name, password_hash FROM accounts WHERE email = ?1",
-                params![email],
+                params![hash_email(&self.key, email)],
                 |row| {
                     Ok(Account {
                         name: row.get(0)?,
@@ -63,7 +105,7 @@ impl Db {
     ) -> rusqlite::Result<bool> {
         let result = self.conn.execute(
             "INSERT INTO accounts (email, name, password_hash, created) VALUES (?1, ?2, ?3, ?4)",
-            params![email, name, password_hash, now as i64],
+            params![hash_email(&self.key, email), name, password_hash, now as i64],
         );
         match result {
             Ok(_) => Ok(true),
@@ -75,7 +117,7 @@ impl Db {
     pub fn create_session(&self, token: &str, email: &str, now: u64) -> rusqlite::Result<()> {
         self.conn.execute(
             "INSERT INTO sessions (token, email, created) VALUES (?1, ?2, ?3)",
-            params![token, email, now as i64],
+            params![token, hash_email(&self.key, email), now as i64],
         )?;
         Ok(())
     }
