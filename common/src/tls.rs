@@ -159,3 +159,10 @@ pub async fn connect_async(addr: &str) -> anyhow::Result<(AsyncClientStream<Asyn
     let fingerprint = seen.lock().unwrap().clone().ok_or_else(|| anyhow::anyhow!("no certificate from server"))?;
     Ok((stream, fingerprint))
 }
+
+/// True when a connection ended because the other side dropped the socket without the TLS close
+/// message. That happens when a client exits, so it is not worth logging as an error.
+pub fn is_quiet_close(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<std::io::Error>()
+        .is_some_and(|e| e.kind() == std::io::ErrorKind::UnexpectedEof)
+}

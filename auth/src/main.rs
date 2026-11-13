@@ -61,7 +61,9 @@ async fn main() -> anyhow::Result<()> {
                 }
             };
             if let Err(e) = handle_connection(socket, db).await {
-                eprintln!("{peer}: {e}");
+                if !common::tls::is_quiet_close(&e) {
+                    eprintln!("{peer}: {e}");
+                }
             }
         });
     }

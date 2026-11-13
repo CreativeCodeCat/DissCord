@@ -210,7 +210,9 @@ async fn run_server(config: ServerConfig) -> anyhow::Result<()> {
                 }
             };
             if let Err(e) = handle_connection(socket, state, tx, auth_addr).await {
-                eprintln!("{peer}: {e}");
+                if !common::tls::is_quiet_close(&e) {
+                    eprintln!("{peer}: {e}");
+                }
             }
             println!("{peer} disconnected");
         });
