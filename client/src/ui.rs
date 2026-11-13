@@ -396,6 +396,15 @@ fn server_header(app: &DissCordApp, ui: &mut Ui, title: &str, actions: &mut Vec<
 /// One full-width row in a Discord-style menu. Returns true when clicked.
 /// `danger` rows are red, and their hover colour is red too.
 fn menu_item(ui: &mut Ui, label: &str, danger: bool) -> bool {
+    menu_row(ui, None, label, danger)
+}
+
+/// A menu row with an icon on its left.
+fn menu_item_icon(ui: &mut Ui, icon: Icon, label: &str, danger: bool) -> bool {
+    menu_row(ui, Some(icon), label, danger)
+}
+
+fn menu_row(ui: &mut Ui, icon: Option<Icon>, label: &str, danger: bool) -> bool {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 30.0), Sense::click());
     let (fill, text) = match (resp.hovered(), danger) {
         (true, true) => (Some(RED), TEXT_STRONG),
@@ -406,8 +415,15 @@ fn menu_item(ui: &mut Ui, label: &str, danger: bool) -> bool {
     if let Some(fill) = fill {
         ui.painter().rect_filled(rect, CornerRadius::same(4), fill);
     }
+    let text_x = match icon {
+        Some(icon) => {
+            paint_icon(ui.painter(), rect.left_center() + egui::vec2(18.0, 0.0), icon, text);
+            34.0
+        }
+        None => 10.0,
+    };
     ui.painter().text(
-        rect.left_center() + egui::vec2(10.0, 0.0),
+        rect.left_center() + egui::vec2(text_x, 0.0),
         Align2::LEFT_CENTER,
         label,
         FontId::proportional(14.0),
@@ -1286,6 +1302,8 @@ enum Icon {
     ChevronDown,
     ChevronRight,
     Explore,
+    Pencil,
+    Trash,
 }
 
 /// Tooltip for buttons that exist visually but have no feature behind them yet.
@@ -1309,6 +1327,21 @@ fn paint_icon(painter: &egui::Painter, c: egui::Pos2, icon: Icon, color: Color32
             painter.rect_stroke(bell, CornerRadius::same(6), stroke, egui::StrokeKind::Inside);
             painter.line_segment([p(-8.0, 4.0), p(8.0, 4.0)], stroke);
             painter.circle_filled(p(0.0, 7.0), 2.0, color);
+        }
+        Icon::Pencil => {
+            // A solid pencil: a wide body running up to the right, with a pointed tip at the bottom left.
+            let body = vec![p(-2.9, 6.1), p(5.6, -2.4), p(2.4, -5.6), p(-6.1, 2.9)];
+            painter.add(egui::Shape::convex_polygon(body, color, egui::Stroke::NONE));
+            let tip = vec![p(-2.9, 6.1), p(-6.1, 2.9), p(-7.0, 7.0)];
+            painter.add(egui::Shape::convex_polygon(tip, color, egui::Stroke::NONE));
+        }
+        Icon::Trash => {
+            let bin = egui::Rect::from_min_max(p(-5.0, -3.0), p(5.0, 6.0));
+            painter.rect_stroke(bin, CornerRadius::same(1), stroke, egui::StrokeKind::Inside);
+            painter.line_segment([p(-7.0, -4.0), p(7.0, -4.0)], stroke);
+            painter.line_segment([p(-2.0, -4.0), p(-2.0, -6.5)], stroke);
+            painter.line_segment([p(2.0, -4.0), p(2.0, -6.5)], stroke);
+            painter.line_segment([p(-2.0, -6.5), p(2.0, -6.5)], stroke);
         }
         Icon::Pin => {
             painter.circle_filled(p(3.0, -3.0), 3.5, color);
@@ -1783,6 +1816,7 @@ fn day_divider(ui: &mut Ui, at: u64) {
 fn full_message(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut Vec<MenuAction>) {
     ui.add_space(12.0);
     message_row(ui, app, m, actions, |ui, actions| {
+        let row_left = ui.max_rect().left();
         ui.horizontal(|ui| {
             ui.add_space(16.0);
             avatar(ui, &m.author, 40.0, None);
@@ -1797,7 +1831,13 @@ fn full_message(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut V
                     );
                     ui.label(RichText::new(stamp_label(m.timestamp)).small().color(TEXT_MUTED));
                 });
-                message_text(ui, app, m, actions);
+                // The text starts at the same x as the text of grouped messages (see compact_message).
+                let text_left = row_left + AVATAR_INDENT + 16.0;
+                ui.horizontal(|ui| {
+                    let pad = text_left - ui.cursor().left();
+                    ui.add_space(pad.max(0.0));
+                    ui.vertical(|ui| message_text(ui, app, m, actions));
+                });
             });
         });
     });
@@ -1831,17 +1871,19 @@ fn message_row(
         egui::pos2(ui.max_rect().left(), rect.top()),
         egui::pos2(ui.max_rect().right(), rect.bottom()),
     );
-    // The toolbar hangs over the row's edge, so the row stays hovered while the pointer is on the
-    // toolbar (its rect from the last frame) or while one of its menus is open.
+    // While a message menu is open, only its message shows a toolbar. Otherwise the toolbar shows
+    // while the pointer is on the row or on the toolbar itself (its rect from the last frame).
     let key = egui::Id::NULL.with(("message_toolbar_rect", m.id));
     let previous: Option<egui::Rect> = ui.ctx().data(|d| d.get_temp(key));
-    // Plain rectangle tests: the toolbar sits on a layer above the row, and the row's own test
-    // would say the pointer is not over it.
     let pointer = ui.ctx().pointer_hover_pos();
     let over_toolbar = matches!((previous, pointer), (Some(r), Some(p)) if r.contains(p));
     let over_row = pointer.is_some_and(|p| full.contains(p));
-    let menu_open = previous.is_some() && egui::Popup::is_any_open(ui.ctx());
-    if over_row || over_toolbar || menu_open {
+    let open = open_menu(ui.ctx());
+    let shows = match open {
+        Some((id, _)) => id == m.id,
+        None => over_row || over_toolbar,
+    };
+    if shows {
         ui.painter().set(background, egui::Shape::rect_filled(full, CornerRadius::ZERO, HOVER_BG));
         if m.id != 0 {
             let toolbar = message_toolbar(ui, app, m, full, actions);
@@ -1850,6 +1892,29 @@ fn message_row(
     } else {
         ui.ctx().data_mut(|d| d.remove::<egui::Rect>(key));
     }
+}
+
+/// The message menu that is open, if any: the message's id and which menu it is.
+fn open_menu(ctx: &egui::Context) -> Option<(i64, OpenMenu)> {
+    ctx.data(|d| d.get_temp(egui::Id::NULL.with("open_message_menu")))
+}
+
+fn set_open_menu(ctx: &egui::Context, menu: Option<(i64, OpenMenu)>) {
+    let id = egui::Id::NULL.with("open_message_menu");
+    ctx.data_mut(|d| {
+        if let Some(menu) = menu {
+            d.insert_temp(id, menu);
+        } else {
+            d.remove::<(i64, OpenMenu)>(id);
+        }
+    });
+}
+
+/// The two menus a message toolbar opens.
+#[derive(Clone, Copy, PartialEq)]
+enum OpenMenu {
+    Picker,
+    More,
 }
 
 /// The colour image for an emoji, drawn at `size` points square. `None` when there is no image.
@@ -1883,7 +1948,9 @@ fn emoji_button(ui: &mut Ui, emoji: &str, size: f32, hover: Option<&str>) -> boo
 
 /// The emoji picker: a search box and every emoji grouped by category, like a phone keyboard.
 /// Picking one reacts to the message and closes the menu.
-fn emoji_picker(ui: &mut Ui, id: i64, actions: &mut Vec<MenuAction>) {
+/// Returns true when an emoji was picked.
+fn emoji_picker(ui: &mut Ui, id: i64, actions: &mut Vec<MenuAction>) -> bool {
+    let mut picked = false;
     ui.set_width(340.0);
     let search_id = egui::Id::NULL.with("emoji_picker_search");
     let mut query: String = ui.data(|d| d.get_temp(search_id)).unwrap_or_default();
@@ -1921,7 +1988,7 @@ fn emoji_picker(ui: &mut Ui, id: i64, actions: &mut Vec<MenuAction>) {
                     for (name, emoji) in emoji {
                         if emoji_button(ui, emoji, 24.0, Some(name)) {
                             actions.push(MenuAction::React { id, emoji: emoji.to_string() });
-                            ui.close();
+                            picked = true;
                         }
                     }
                 });
@@ -1930,6 +1997,7 @@ fn emoji_picker(ui: &mut Ui, id: i64, actions: &mut Vec<MenuAction>) {
                 ui.label(RichText::new("No emoji match.").color(TEXT_MUTED));
             }
         });
+    picked
 }
 
 /// The emoji categories, in the order they appear in the data.
@@ -1943,21 +2011,21 @@ fn emoji_categories() -> Vec<&'static str> {
     categories
 }
 
-/// The floating toolbar at the top right of a hovered message.
-fn message_toolbar(
-    ui: &mut Ui,
-    app: &DissCordApp,
-    m: &ChatMessage,
-    row: egui::Rect,
-    actions: &mut Vec<MenuAction>,
-) -> egui::Rect {
+/// The floating toolbar at the top right of a hovered message, and the menu it has open. Returns
+/// the toolbar's rect.
+fn message_toolbar(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, row: egui::Rect, actions: &mut Vec<MenuAction>) -> egui::Rect {
+    let ctx = ui.ctx().clone();
+    let open = open_menu(&ctx).filter(|(id, _)| *id == m.id).map(|(_, menu)| menu);
+    let mut clicked: Option<Option<OpenMenu>> = None;
+    let mut picker_rect = egui::Rect::NOTHING;
+    let mut more_rect = egui::Rect::NOTHING;
     let area = egui::Area::new(egui::Id::NULL.with(("message_toolbar", m.id)))
         .order(egui::Order::Foreground)
         // Show at full strength at once. A fade-in would leave the toolbar looking washed out.
         .fade_in(false)
         .pivot(egui::Align2::RIGHT_TOP)
         .fixed_pos(row.right_top() + egui::vec2(-16.0, -6.0))
-        .show(ui.ctx(), |ui| {
+        .show(&ctx, |ui| {
             Frame::new()
                 .fill(SIDEBAR_BG)
                 .stroke(egui::Stroke::new(1.0, HOVER_BG))
@@ -1974,24 +2042,79 @@ fn message_toolbar(
                         let picker = ui.add(
                             egui::Button::new(RichText::new("☺").size(20.0).color(TEXT_MUTED)).frame(false),
                         );
-                        egui::Popup::menu(&picker).show(|ui| emoji_picker(ui, m.id, actions));
+                        picker_rect = picker.rect;
+                        if picker.clicked() {
+                            clicked = Some((open != Some(OpenMenu::Picker)).then_some(OpenMenu::Picker));
+                        }
                         // Edit and delete are only offered for your own messages.
                         if m.author == app.user {
                             let more = ui.add(egui::Button::new(RichText::new("⋯").strong().color(TEXT_MUTED)).frame(false));
-                            egui::Popup::menu(&more).show(|ui| {
-                                if ui.button("Edit message").clicked() {
-                                    actions.push(MenuAction::StartEdit { id: m.id, text: m.text.clone() });
-                                    ui.close();
-                                }
-                                if ui.button("Delete message").clicked() {
-                                    actions.push(MenuAction::Delete(m.id));
-                                    ui.close();
-                                }
-                            });
+                            more_rect = more.rect;
+                            if more.clicked() {
+                                clicked = Some((open != Some(OpenMenu::More)).then_some(OpenMenu::More));
+                            }
                         }
                     });
                 });
         });
+
+    // The open menu is its own area, under its button.
+    let mut menu_rect: Option<egui::Rect> = None;
+    let mut picked = false;
+    if let Some(menu) = open {
+        let button = if menu == OpenMenu::Picker { picker_rect } else { more_rect };
+        let shown = egui::Area::new(egui::Id::NULL.with(("message_menu", m.id)))
+            .order(egui::Order::Foreground)
+            .fixed_pos(button.left_bottom() + egui::vec2(0.0, 4.0))
+            .show(&ctx, |ui| {
+                Frame::new()
+                    .fill(SIDEBAR_BG)
+                    .stroke(egui::Stroke::new(1.0, HOVER_BG))
+                    .corner_radius(CornerRadius::same(8))
+                    .shadow(egui::epaint::Shadow {
+                        offset: [0, 4],
+                        blur: 16,
+                        spread: 0,
+                        color: egui::Color32::from_black_alpha(110),
+                    })
+                    .inner_margin(Margin::symmetric(6, 6))
+                    .show(ui, |ui| match menu {
+                        OpenMenu::Picker => {
+                            picked = emoji_picker(ui, m.id, actions);
+                        }
+                        OpenMenu::More => {
+                            ui.set_width(180.0);
+                            if menu_item_icon(ui, Icon::Pencil, "Edit Message", false) {
+                                actions.push(MenuAction::StartEdit { id: m.id, text: m.text.clone() });
+                                picked = true;
+                            }
+                            ui.add_space(2.0);
+                            ui.separator();
+                            ui.add_space(2.0);
+                            if menu_item_icon(ui, Icon::Trash, "Delete Message", true) {
+                                actions.push(MenuAction::Delete(m.id));
+                                picked = true;
+                            }
+                        }
+                    });
+            });
+        menu_rect = Some(shown.response.rect);
+    }
+
+    // A click on a button opens or closes its menu. A click anywhere else, or a pick, closes it.
+    let mut next = clicked.unwrap_or(open);
+    if picked {
+        next = None;
+    }
+    let pos = ctx.input(|i| i.pointer.interact_pos());
+    let clicked_away = ctx.input(|i| i.pointer.any_click())
+        && pos.is_some_and(|p| !area.response.rect.contains(p) && !menu_rect.is_some_and(|r| r.contains(p)));
+    if clicked_away && clicked.is_none() {
+        next = None;
+    }
+    if next != open {
+        set_open_menu(&ctx, next.map(|menu| (m.id, menu)));
+    }
     area.response.rect
 }
 
@@ -2017,11 +2140,11 @@ fn message_text(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut V
             emoji_picker(ui, m.id, actions);
             if m.author == app.user {
                 ui.separator();
-                if ui.button("Edit message").clicked() {
+                if ui.button("Edit Message").clicked() {
                     actions.push(MenuAction::StartEdit { id: m.id, text: m.text.clone() });
                     ui.close();
                 }
-                if ui.button("Delete message").clicked() {
+                if ui.button("Delete Message").clicked() {
                     actions.push(MenuAction::Delete(m.id));
                     ui.close();
                 }

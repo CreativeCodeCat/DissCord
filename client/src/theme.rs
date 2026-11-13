@@ -1,42 +1,42 @@
-//! Discord-style colour palette and global egui styling.
+//! Catppuccin Mocha colour palette and global egui styling.
 
 use std::sync::Arc;
 
 use eframe::egui::{self, Color32, CornerRadius, Visuals};
 
 /// Main chat background.
-pub const APP_BG: Color32 = Color32::from_rgb(0x31, 0x33, 0x38);
+pub const APP_BG: Color32 = Color32::from_rgb(0x1E, 0x1E, 0x2E);
 /// Channel and member sidebars.
-pub const SIDEBAR_BG: Color32 = Color32::from_rgb(0x2B, 0x2D, 0x31);
+pub const SIDEBAR_BG: Color32 = Color32::from_rgb(0x18, 0x18, 0x25);
 /// Far-left server rail and login backdrop.
-pub const RAIL_BG: Color32 = Color32::from_rgb(0x1E, 0x1F, 0x22);
+pub const RAIL_BG: Color32 = Color32::from_rgb(0x11, 0x11, 0x1B);
 /// Bottom-left user bar.
-pub const USER_BAR_BG: Color32 = Color32::from_rgb(0x23, 0x24, 0x28);
+pub const USER_BAR_BG: Color32 = Color32::from_rgb(0x11, 0x11, 0x1B);
 /// Message composer and text fields.
-pub const INPUT_BG: Color32 = Color32::from_rgb(0x38, 0x3A, 0x40);
-pub const HOVER_BG: Color32 = Color32::from_rgb(0x35, 0x37, 0x3C);
-pub const SELECTED_BG: Color32 = Color32::from_rgb(0x40, 0x42, 0x48);
+pub const INPUT_BG: Color32 = Color32::from_rgb(0x31, 0x32, 0x44);
+pub const HOVER_BG: Color32 = Color32::from_rgb(0x31, 0x32, 0x44);
+pub const SELECTED_BG: Color32 = Color32::from_rgb(0x45, 0x47, 0x5A);
 
-pub const TEXT: Color32 = Color32::from_rgb(0xDB, 0xDE, 0xE1);
-pub const TEXT_MUTED: Color32 = Color32::from_rgb(0x94, 0x9B, 0xA4);
-pub const TEXT_STRONG: Color32 = Color32::WHITE;
+pub const TEXT: Color32 = Color32::from_rgb(0xBA, 0xC2, 0xDE);
+pub const TEXT_MUTED: Color32 = Color32::from_rgb(0x7F, 0x84, 0x9C);
+pub const TEXT_STRONG: Color32 = Color32::from_rgb(0xCD, 0xD6, 0xF4);
 
-pub const ACCENT: Color32 = Color32::from_rgb(0x58, 0x65, 0xF2);
+pub const ACCENT: Color32 = Color32::from_rgb(0xCB, 0xA6, 0xF7);
 /// Text links (text and underline).
-pub const LINK: Color32 = Color32::from_rgb(0x8E, 0xA1, 0xE1);
-pub const GREEN: Color32 = Color32::from_rgb(0x23, 0xA5, 0x5A);
-pub const RED: Color32 = Color32::from_rgb(0xF2, 0x3F, 0x43);
+pub const LINK: Color32 = Color32::from_rgb(0x89, 0xB4, 0xFA);
+pub const GREEN: Color32 = Color32::from_rgb(0xA6, 0xE3, 0xA1);
+pub const RED: Color32 = Color32::from_rgb(0xF3, 0x8B, 0xA8);
 
 /// Colours used for avatars and author names.
 const AVATAR_PALETTE: [Color32; 8] = [
-    Color32::from_rgb(0x58, 0x65, 0xF2),
-    Color32::from_rgb(0xEB, 0x45, 0x9E),
-    Color32::from_rgb(0x57, 0xF2, 0x87),
-    Color32::from_rgb(0xFE, 0xE7, 0x5C),
-    Color32::from_rgb(0xED, 0x42, 0x45),
-    Color32::from_rgb(0xF5, 0x77, 0x31),
-    Color32::from_rgb(0x00, 0xA8, 0xFC),
-    Color32::from_rgb(0x9B, 0x84, 0xEE),
+    Color32::from_rgb(0x89, 0xB4, 0xFA), // Blue
+    Color32::from_rgb(0xF5, 0xC2, 0xE7), // Pink
+    Color32::from_rgb(0xA6, 0xE3, 0xA1), // Green
+    Color32::from_rgb(0xF9, 0xE2, 0xAF), // Yellow
+    Color32::from_rgb(0xF3, 0x8B, 0xA8), // Red
+    Color32::from_rgb(0xFA, 0xB3, 0x87), // Peach
+    Color32::from_rgb(0x74, 0xC7, 0xEC), // Sapphire
+    Color32::from_rgb(0xCB, 0xA6, 0xF7), // Mauve
 ];
 
 /// A stable colour for a user name, so the same person always looks the same.
