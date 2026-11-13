@@ -2292,7 +2292,7 @@ fn message_row(
     let over_row = pointer.is_some_and(|p| full.contains(p));
     // A right-click anywhere on your own message opens the same menu as the ⋯ button, at the
     // pointer. Skipped when another menu (such as a user's name menu) opened this frame.
-    if m.id != 0 && m.author_id == app.user_id && !egui::Popup::is_any_open(ui.ctx()) {
+    if m.id != 0 && can_delete(app, m) && !egui::Popup::is_any_open(ui.ctx()) {
         let right = ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Secondary));
         if let (true, Some(p)) = (right, pointer) {
             if full.contains(p) {
@@ -2319,6 +2319,16 @@ fn message_row(
     } else {
         ui.ctx().data_mut(|d| d.remove::<egui::Rect>(key));
     }
+}
+
+/// Whether the logged-in user may edit this message: only its author may.
+fn can_edit(app: &DissCordApp, m: &ChatMessage) -> bool {
+    m.author_id == app.user_id
+}
+
+/// Whether the logged-in user may delete this message: its author, or the server's owner.
+fn can_delete(app: &DissCordApp, m: &ChatMessage) -> bool {
+    can_edit(app, m) || app.is_owner()
 }
 
 /// The message menu that is open, if any: the message's id and which menu it is.
@@ -2505,8 +2515,8 @@ fn message_toolbar(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, row: egui::R
                         if picker.clicked() {
                             clicked = Some((open != Some(OpenMenu::Picker)).then_some(OpenMenu::Picker));
                         }
-                        // Edit and delete are only offered for your own messages.
-                        if m.author_id == app.user_id {
+                        // Delete is offered for your own messages and, as owner, for any message.
+                        if can_delete(app, m) {
                             let more = ui.add(egui::Button::new(RichText::new("⋯").strong().color(pal().text_muted)).frame(false));
                             more_rect = more.rect;
                             if more.clicked() {
@@ -2549,13 +2559,16 @@ fn message_toolbar(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, row: egui::R
                         }
                         OpenMenu::More | OpenMenu::Context => {
                             ui.set_width(180.0);
-                            if menu_item_icon(ui, Icon::Pencil, "Edit Message", false) {
-                                actions.push(MenuAction::StartEdit { id: m.id, text: m.text.clone() });
-                                picked = true;
+                            // Only the author can edit. The owner can delete, but not edit, others' messages.
+                            if can_edit(app, m) {
+                                if menu_item_icon(ui, Icon::Pencil, "Edit Message", false) {
+                                    actions.push(MenuAction::StartEdit { id: m.id, text: m.text.clone() });
+                                    picked = true;
+                                }
+                                ui.add_space(2.0);
+                                ui.separator();
+                                ui.add_space(2.0);
                             }
-                            ui.add_space(2.0);
-                            ui.separator();
-                            ui.add_space(2.0);
                             if menu_item_icon(ui, Icon::Trash, "Delete Message", true) {
                                 actions.push(MenuAction::AskDelete(m.id));
                                 picked = true;

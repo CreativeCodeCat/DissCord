@@ -478,14 +478,19 @@ where
                         }
                     }
                     ClientMsg::Delete { id } => {
-                        let deleted = state.lock().unwrap().db.delete_message(id, &user)?;
+                        // The author may delete a message, and so may the server owner.
+                        let deleted = {
+                            let s = state.lock().unwrap();
+                            let is_owner = s.db.owner()?.as_deref() == Some(user.as_str());
+                            s.db.delete_message(id, &user, is_owner)?
+                        };
                         match deleted {
                             Some(channel) => {
                                 let _ = tx.send(ServerMsg::MessageDeleted { channel, id });
                             }
                             None => {
                                 send(&mut writer, &ServerMsg::Error {
-                                    text: "you can only delete your own messages".into(),
+                                    text: "only the author or the server owner can delete a message".into(),
                                 })
                                 .await?;
                             }
