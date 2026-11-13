@@ -97,13 +97,13 @@ pub enum MenuAction {
     CopyText(String),
     MarkRead(String),
     CreateChannel,
-    ToggleCreateBox,
     ToggleMembers,
     Logout,
     SelectServer(usize),
     RemoveServer(usize),
     OpenAddServer,
     OpenServerSettings,
+    OpenUserSettings,
     OpenDiscover,
     RetryServer,
     /// The server's certificate changed, and the user trusts the new one.
@@ -143,6 +143,30 @@ pub struct DissCordApp {
 
     // "Server settings" dialog (owner only)
     pub show_server_settings: bool,
+    /// The user settings page, opened from the gear beside your name.
+    pub show_user_settings: bool,
+    /// The account's email, as the auth service reports it. `None` when it is not on record.
+    pub account_email: Option<String>,
+    /// Why the account's email could not be loaded, if it could not.
+    pub account_email_error: Option<String>,
+    /// The email form on the Account page: whether it is open, and what has been typed.
+    pub email_editing: bool,
+    pub email_input: String,
+    pub email_password: String,
+    pub email_error: Option<String>,
+    /// The account's display name and username, as the auth service reports them.
+    pub account_username: Option<String>,
+    /// The name and username forms on the Account page: whether each is open, and what is typed.
+    pub name_editing: bool,
+    pub name_input: String,
+    pub username_editing: bool,
+    pub username_input: String,
+    pub profile_error: Option<String>,
+    /// Changes waiting for the Save button on the Account page. Nothing is sent until then.
+    pub name_draft: Option<String>,
+    pub username_draft: Option<String>,
+    pub email_draft: Option<(String, String)>,
+    pub create_box_draft: Option<bool>,
     pub rename_input: String,
     pub description_input: String,
     /// The description the server last sent us.
@@ -173,6 +197,10 @@ pub struct DissCordApp {
     pub offline: Vec<String>,
     /// The owner of the open server (its first member).
     pub owner: Option<String>,
+    /// The hidden account id of this user and of the owner. Own messages and the owner are matched by
+    /// id, so they still match after a name change.
+    pub user_id: String,
+    pub owner_id: Option<String>,
     /// Channels that received messages while we were not looking at them.
     pub unread: HashSet<String>,
     /// For each channel, how many messages it had when we last left it. Messages after this
@@ -209,6 +237,22 @@ pub struct DissCordApp {
     pub auth_banner_closed: bool,
 }
 
+/// A short, plain explanation of why a connection ended, from the technical reason.
+fn friendly_disconnect(reason: &str) -> &'static str {
+    let r = reason.to_lowercase();
+    if r.contains("refused") {
+        "The server isn't running or can't be reached. Check the address and try again."
+    } else if r.contains("timed out") || r.contains("timeout") || r.contains("did not answer") {
+        "The server stopped responding. Check your connection and try again."
+    } else if r.contains("certificate") {
+        "The server's security certificate has changed. See the message on the login screen."
+    } else if r.contains("close_notify") || r.contains("unexpected-eof") || r.contains("closed") || r.contains("reset") {
+        "The server closed the connection, perhaps because it restarted. Try again in a moment."
+    } else {
+        "Something interrupted the connection. Try again."
+    }
+}
+
 impl DissCordApp {
     /// Checks a saved login with the auth service and logs in if it is still valid.
     /// Called once at startup. If the auth service cannot be reached, the saved login is used
@@ -218,7 +262,7 @@ impl DissCordApp {
             return;
         };
         match auth_client::request(&AuthRequest::Verify { token: saved.token.clone() }) {
-            Ok(AuthReply::Verified { name }) => {
+            Ok(AuthReply::Verified { name, .. }) => {
                 self.auth_down = false;
                 self.user = name;
                 self.session = Some(Session { token: saved.token });
@@ -265,6 +309,123 @@ impl DissCordApp {
             Some(_) => None,
             // Not logged in (for example, the auth service was unreachable at startup): keep what we had.
             None => self.saved_session.clone(),
+        }
+    }
+
+    /// Fetches the account's email from the auth service for the Account page.
+    pub fn load_account_email(&mut self) {
+        let Some(session) = &self.session else {
+            return;
+        };
+        match auth_client::request(&AuthRequest::Profile { token: session.token.clone() }) {
+            Ok(AuthReply::Profile { name, username, email }) => {
+                self.user = name;
+                self.account_username = Some(username);
+                self.account_email = email;
+                self.account_email_error = None;
+            }
+            Ok(AuthReply::Error { text }) => self.account_email_error = Some(text),
+            Ok(_) => self.account_email_error = Some("Unexpected reply from the auth service.".into()),
+            Err(e) => self.account_email_error = Some(e),
+        }
+    }
+
+    /// True when the Account page has changes waiting to be saved.
+    pub fn has_account_changes(&self) -> bool {
+        self.name_draft.is_some()
+            || self.username_draft.is_some()
+            || self.email_draft.is_some()
+            || self.create_box_draft.is_some()
+    }
+
+    /// Drops every change waiting on the Account page.
+    pub fn reset_account_changes(&mut self) {
+        self.name_draft = None;
+        self.username_draft = None;
+        self.email_draft = None;
+        self.create_box_draft = None;
+        self.profile_error = None;
+        self.email_error = None;
+    }
+
+    /// Sends the waiting changes. A change that fails stays waiting, with its error shown.
+    pub fn save_account_changes(&mut self) {
+        if let Some(name) = self.name_draft.take() {
+            if name != self.user {
+                self.profile_error = None;
+                self.update_account_profile(Some(name.clone()), None);
+                if self.profile_error.is_some() {
+                    self.name_draft = Some(name);
+                }
+            }
+        }
+        if let Some(username) = self.username_draft.take() {
+            if Some(&username) != self.account_username.as_ref() {
+                self.profile_error = None;
+                self.update_account_profile(None, Some(username.clone()));
+                if self.profile_error.is_some() {
+                    self.username_draft = Some(username);
+                }
+            }
+        }
+        if let Some((email, password)) = self.email_draft.take() {
+            self.email_input = email.clone();
+            self.email_password = password.clone();
+            self.email_error = None;
+            self.change_account_email();
+            if self.email_error.is_some() {
+                self.email_draft = Some((email, password));
+            }
+        }
+        if let Some(show) = self.create_box_draft.take() {
+            self.show_create_box = show;
+        }
+    }
+
+    /// Changes the display name and/or the username. Usernames are lowercase.
+    pub fn update_account_profile(&mut self, name: Option<String>, username: Option<String>) {
+        let Some(session) = &self.session else {
+            return;
+        };
+        let request = AuthRequest::UpdateProfile { token: session.token.clone(), name, username };
+        match auth_client::request(&request) {
+            Ok(AuthReply::Profile { name, username, email }) => {
+                self.user = name;
+                self.account_username = Some(username);
+                self.account_email = email;
+                self.profile_error = None;
+                self.name_editing = false;
+                self.username_editing = false;
+            }
+            Ok(AuthReply::Error { text }) => self.profile_error = Some(text),
+            Ok(_) => self.profile_error = Some("Unexpected reply from the auth service.".into()),
+            Err(e) => self.profile_error = Some(e),
+        }
+    }
+
+    /// Changes the account's email. The password must be the current one.
+    pub fn change_account_email(&mut self) {
+        let Some(session) = &self.session else {
+            return;
+        };
+        let new_email = self.email_input.trim().to_string();
+        let request = AuthRequest::ChangeEmail {
+            token: session.token.clone(),
+            password: self.email_password.clone(),
+            new_email,
+        };
+        match auth_client::request(&request) {
+            Ok(AuthReply::EmailChanged { email }) => {
+                self.account_email = Some(email);
+                self.account_email_error = None;
+                self.email_editing = false;
+                self.email_input.clear();
+                self.email_password.clear();
+                self.email_error = None;
+            }
+            Ok(AuthReply::Error { text }) => self.email_error = Some(text),
+            Ok(_) => self.email_error = Some("Unexpected reply from the auth service.".into()),
+            Err(e) => self.email_error = Some(e),
         }
     }
 
@@ -348,6 +509,7 @@ impl DissCordApp {
         self.disconnect();
         self.selected = None;
         self.user.clear();
+        self.user_id.clear();
         self.login_password.clear();
     }
 
@@ -363,6 +525,7 @@ impl DissCordApp {
         self.online.clear();
         self.offline.clear();
         self.owner = None;
+        self.owner_id = None;
         self.server_description.clear();
         self.server_icon = None;
         self.server_public = false;
@@ -376,7 +539,7 @@ impl DissCordApp {
 
     /// Whether the logged-in user owns the open server.
     pub fn is_owner(&self) -> bool {
-        self.owner.as_deref() == Some(self.user.as_str())
+        self.owner_id.is_some() && self.owner_id.as_deref() == Some(self.user_id.as_str())
     }
 
     /// Opens "Find servers" and asks the selected server which other servers it knows.
@@ -549,11 +712,14 @@ impl DissCordApp {
                     let was_welcomed = self.welcomed;
                     self.disconnect();
                     let name = self.selected_name().unwrap_or("the server").to_string();
+                    // The full reason goes to the terminal for anyone debugging.
+                    eprintln!("connection to {name} ended: {reason}");
+                    let friendly = friendly_disconnect(&reason);
                     if was_welcomed {
-                        self.server_error = Some(format!("Disconnected from {name} ({reason})."));
+                        self.server_error = Some(format!("Lost the connection to {name}. {friendly}"));
                     } else if self.server_error.is_none() {
                         // The server usually sent an Error just before closing; keep that message.
-                        self.server_error = Some(format!("Could not join {name} ({reason})."));
+                        self.server_error = Some(format!("Couldn't join {name}. {friendly}"));
                     }
                     return;
                 }
@@ -563,10 +729,11 @@ impl DissCordApp {
 
     fn on_server(&mut self, msg: ServerMsg) {
         match msg {
-            ServerMsg::Welcome { name, server_name, server_description, server_icon, server_public } => {
+            ServerMsg::Welcome { name, user_id, server_name, server_description, server_icon, server_public } => {
                 self.server_public = server_public;
                 self.welcomed = true;
                 self.user = name.clone();
+                self.user_id = user_id;
                 self.server_error = None;
                 self.set_server_profile(&server_name, &server_description);
                 self.set_server_icon(server_icon);
@@ -639,6 +806,7 @@ impl DissCordApp {
                 self.online = users.iter().filter(|u| u.online).map(|u| u.name.clone()).collect();
                 self.offline = users.iter().filter(|u| !u.online).map(|u| u.name.clone()).collect();
                 self.owner = users.iter().find(|u| u.owner).map(|u| u.name.clone());
+                self.owner_id = users.iter().find(|u| u.owner).map(|u| u.id.clone());
             }
             ServerMsg::System { channel, text } => {
                 self.messages
@@ -713,7 +881,6 @@ impl DissCordApp {
                 self.focus_create = true;
                 self.create_box_open = true;
             }
-            MenuAction::ToggleCreateBox => self.show_create_box = !self.show_create_box,
             MenuAction::ToggleMembers => self.members_hidden = !self.members_hidden,
             MenuAction::Logout => self.logout(),
             MenuAction::TrustNewServerCert => {
@@ -729,6 +896,10 @@ impl DissCordApp {
             MenuAction::OpenAddServer => {
                 self.show_add_server = true;
                 self.add_error = None;
+            }
+            MenuAction::OpenUserSettings => {
+                self.show_user_settings = true;
+                self.load_account_email();
             }
             MenuAction::OpenServerSettings => {
                 self.rename_input = self.selected_name().unwrap_or_default().to_string();

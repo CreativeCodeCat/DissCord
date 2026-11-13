@@ -55,6 +55,9 @@ impl Db {
         conn.execute_batch(SCHEMA)?;
         // Databases made before messages could be edited lack this column.
         let _ = conn.execute("ALTER TABLE messages ADD COLUMN edited INTEGER NOT NULL DEFAULT 0", []);
+        // Members get a display name separate from their id. Older databases lack it.
+        let _ = conn.execute("ALTER TABLE members ADD COLUMN display TEXT", []);
+        let _ = conn.execute("ALTER TABLE session_cache ADD COLUMN id TEXT", []);
         // Servers that already have members but no owner: the earliest member becomes the owner.
         conn.execute(
             "INSERT OR IGNORE INTO server_info (key, value)
@@ -83,21 +86,33 @@ impl Db {
         Ok(Self { conn })
     }
 
-    /// Remembers that this user has been on the server. Later logins don't change it.
-    /// The first member ever added becomes the owner. The owner never changes after that.
-    pub fn add_member(&self, name: &str, now: u64) -> rusqlite::Result<()> {
+    /// Remembers that this account has been on the server, and its name for now. Later logins don't
+    /// add it again. The first member ever added becomes the owner. The owner never changes after
+    /// that. `id` is the account's hidden id.
+    pub fn add_member(&self, id: &str, display: &str, now: u64) -> rusqlite::Result<()> {
         self.conn.execute(
             "INSERT OR IGNORE INTO members (name, first_seen) VALUES (?1, ?2)",
-            params![name, now as i64],
+            params![id, now as i64],
+        )?;
+        self.conn.execute(
+            "UPDATE members SET display = ?2 WHERE name = ?1",
+            params![id, display],
         )?;
         self.conn.execute(
             "INSERT OR IGNORE INTO server_info (key, value) VALUES ('owner', ?1)",
-            params![name],
+            params![id],
         )?;
         Ok(())
     }
 
-    /// The owner of this server, if anyone has joined it yet.
+    /// The name to show for each member, by id.
+    pub fn display_names(&self) -> rusqlite::Result<std::collections::HashMap<String, String>> {
+        let mut stmt = self.conn.prepare("SELECT name, COALESCE(display, name) FROM members")?;
+        let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+        rows.collect()
+    }
+
+    /// The owner of this server, by id, if anyone has joined it yet.
     pub fn owner(&self) -> rusqlite::Result<Option<String>> {
         use rusqlite::OptionalExtension;
         self.conn
@@ -194,24 +209,25 @@ impl Db {
     }
 
     /// Remembers that the auth service confirmed this token at time `verified`.
-    pub fn cache_session(&self, token: &str, name: &str, verified: u64) -> rusqlite::Result<()> {
+    pub fn cache_session(&self, token: &str, id: &str, name: &str, verified: u64) -> rusqlite::Result<()> {
         self.conn.execute(
-            "INSERT INTO session_cache (token, name, verified) VALUES (?1, ?2, ?3)
-             ON CONFLICT(token) DO UPDATE SET name = excluded.name, verified = excluded.verified",
-            params![token, name, verified as i64],
+            "INSERT INTO session_cache (token, id, name, verified) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(token) DO UPDATE SET id = excluded.id, name = excluded.name, verified = excluded.verified",
+            params![token, id, name, verified as i64],
         )?;
         Ok(())
     }
 
     /// The name and last confirmed time for a token that was verified before, if any.
-    pub fn cached_session(&self, token: &str) -> rusqlite::Result<Option<(String, u64)>> {
+    /// The account id, name and last confirmed time for a token that was verified before, if any.
+    pub fn cached_session(&self, token: &str) -> rusqlite::Result<Option<(String, String, u64)>> {
         use rusqlite::OptionalExtension;
         let row = self
             .conn
             .query_row(
-                "SELECT name, verified FROM session_cache WHERE token = ?1",
+                "SELECT COALESCE(id, name), name, verified FROM session_cache WHERE token = ?1",
                 params![token],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as u64)),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)? as u64)),
             )
             .optional()?;
         Ok(row)
@@ -248,7 +264,8 @@ impl Db {
     pub fn save_message(&self, m: &ChatMessage) -> rusqlite::Result<i64> {
         self.conn.execute(
             "INSERT INTO messages (channel, author, text, timestamp) VALUES (?1, ?2, ?3, ?4)",
-            params![m.channel, m.author, m.text, m.timestamp as i64],
+            // Messages are stored under the author's id, so they stay with the account.
+            params![m.channel, m.author_id, m.text, m.timestamp as i64],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
@@ -309,6 +326,7 @@ impl Db {
         if ids.is_empty() {
             return Ok(out);
         }
+        let names = self.display_names()?;
         let list = ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",");
         let mut stmt = self.conn.prepare(&format!(
             "SELECT message_id, emoji, user FROM reactions WHERE message_id IN ({list}) ORDER BY rowid"
@@ -316,6 +334,8 @@ impl Db {
         let rows = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))?;
         for row in rows {
             let (message, emoji, user) = row?;
+            // Show the reactor's name, not their id.
+            let user = names.get(&user).cloned().unwrap_or(user);
             let reactions = out.entry(message).or_default();
             match reactions.iter_mut().find(|r| r.emoji == emoji) {
                 Some(r) => r.users.push(user),
@@ -354,6 +374,7 @@ impl Db {
                 id: row.get(0)?,
                 channel: row.get(1)?,
                 author: row.get(2)?,
+                author_id: String::new(),
                 text: row.get(3)?,
                 timestamp: row.get::<_, i64>(4)? as u64,
                 edited: row.get::<_, i64>(5)? != 0,
@@ -361,6 +382,11 @@ impl Db {
             })
         })?;
         let mut messages: Vec<ChatMessage> = rows.collect::<rusqlite::Result<_>>()?;
+        let names = self.display_names()?;
+        for m in &mut messages {
+            m.author_id = m.author.clone();
+            m.author = names.get(&m.author_id).cloned().unwrap_or_else(|| m.author_id.clone());
+        }
         let ids: Vec<i64> = messages.iter().map(|m| m.id).collect();
         let mut reactions = self.reactions_for(&ids)?;
         for m in &mut messages {

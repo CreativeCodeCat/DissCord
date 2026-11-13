@@ -126,10 +126,13 @@ client is in, plus `joined` (with up to 200 messages of history).
 **Accounts and login**
 
 - There is no email verification and no password reset.
-- Passwords are hashed with Argon2. Emails are stored as keyed hashes, using a
-  secret key in `<auth database>.key`, beside the database. Keep that file with
-  the database: without it, nobody can log in. The database alone does not
-  reveal emails.
+- Passwords are hashed with Argon2. Emails are stored as keyed hashes, for
+  logging in, and as an encrypted copy, so the Account page can show them. Both
+  use the secret key in `<auth database>.key`, beside the database. Keep that
+  file with the database: without it, nobody can log in and no email can be
+  read. The database alone does not reveal emails.
+- Accounts made before the encrypted copy was added have no email on record
+  until they set one with Edit on the Account page.
 - The auth service must be running for anyone to log in. While it is
   unreachable, the client shows a red warning and chat servers still accept a
   session the auth service confirmed within the last 24 hours. Each server keeps
@@ -141,6 +144,9 @@ client is in, plus `joined` (with up to 200 messages of history).
   restart. On Linux this needs a Secret Service provider such as GNOME Keyring
   or KWallet. Anyone who can unlock the keychain can use the session until it is
   logged out.
+- Each account has a hidden id, which chat uses to identify people. Changing a
+  display name or username keeps your messages. Usernames are lowercase letters,
+  digits and underscores, and must be unique. Display names must be unique too.
 - Databases from earlier versions keep their old `accounts` and `users` tables,
   which are no longer used. Accounts registered on the old chat servers must
   register again with the auth service.

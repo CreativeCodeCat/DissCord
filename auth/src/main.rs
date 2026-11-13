@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use argon2::password_hash::{phc::PasswordHash, PasswordHasher, PasswordVerifier};
 use argon2::Argon2;
 use common::{is_valid_email, AuthReply, AuthRequest, DEFAULT_AUTH_ADDR};
-use db::Db;
+use db::{username_from, Db};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 
@@ -129,11 +129,18 @@ fn handle_request(db: &SharedDb, request: AuthRequest) -> AuthReply {
         AuthRequest::Register { name, email, password } => register(db, &name, &email, &password),
         AuthRequest::Login { email, password } => login(db, &email, &password),
         AuthRequest::Verify { token } => {
-            return match db.lock().unwrap().session_name(&token) {
-                Ok(Some(name)) => AuthReply::Verified { name },
+            return match db.lock().unwrap().session_account(&token) {
+                Ok(Some(account)) => AuthReply::Verified { id: account.id, name: account.name },
                 Ok(None) => AuthReply::Error { text: "your session has expired, log in again".into() },
                 Err(e) => AuthReply::Error { text: e.to_string() },
             };
+        }
+        AuthRequest::Profile { token } => return profile(db, &token),
+        AuthRequest::UpdateProfile { token, name, username } => {
+            return update_profile(db, &token, name, username);
+        }
+        AuthRequest::ChangeEmail { token, password, new_email } => {
+            return change_email(db, &token, &password, &new_email);
         }
         AuthRequest::Logout { token } => {
             return match db.lock().unwrap().delete_session(&token) {
@@ -169,8 +176,16 @@ fn register(db: &SharedDb, name: &str, email: &str, password: &str) -> Result<(S
     let hash = hash_password(password)?;
     let token = new_token();
     let guard = db.lock().unwrap();
+    // The username starts as the name in lowercase, with a number added if that is taken.
+    let base = username_from(&name);
+    let mut username = base.clone();
+    let mut n = 2;
+    while guard.username_taken(&username).map_err(|e| e.to_string())? {
+        username = format!("{base}{n}");
+        n += 1;
+    }
     let created = guard
-        .create_account(&name, &email, &hash, now_secs())
+        .create_account(&name, &username, &email, &hash, now_secs())
         .map_err(|e| e.to_string())?;
     if !created {
         return Err("that name or email is already registered".into());
@@ -201,6 +216,89 @@ fn login(db: &SharedDb, email: &str, password: &str) -> Result<(String, String),
         .create_session(&token, &email, now_secs())
         .map_err(|e| e.to_string())?;
     Ok((token, account.name))
+}
+
+/// The account's name and email, for the session's owner.
+fn profile(db: &SharedDb, token: &str) -> AuthReply {
+    let guard = db.lock().unwrap();
+    match guard.session_account(token) {
+        Ok(Some(account)) => AuthReply::Profile {
+            name: account.name.clone(),
+            username: account.username.clone(),
+            email: guard.account_email(&account),
+        },
+        Ok(None) => AuthReply::Error { text: "your session has expired, log in again".into() },
+        Err(e) => AuthReply::Error { text: e.to_string() },
+    }
+}
+
+/// Changes the display name and/or the username of the session's account. Usernames are
+/// lowercase letters, digits and underscores, 2 to 24 characters.
+fn update_profile(db: &SharedDb, token: &str, name: Option<String>, username: Option<String>) -> AuthReply {
+    let account = match db.lock().unwrap().session_account(token) {
+        Ok(Some(account)) => account,
+        Ok(None) => return AuthReply::Error { text: "your session has expired, log in again".into() },
+        Err(e) => return AuthReply::Error { text: e.to_string() },
+    };
+    let guard = db.lock().unwrap();
+    if let Some(name) = name {
+        let name = name.trim().to_string();
+        if name.is_empty() || name.chars().count() > MAX_NAME_LEN {
+            return AuthReply::Error { text: format!("name must be 1-{MAX_NAME_LEN} characters") };
+        }
+        match guard.set_display_name(&account.email_hash, &name) {
+            Ok(true) => {}
+            Ok(false) => return AuthReply::Error { text: "that name is already taken".into() },
+            Err(e) => return AuthReply::Error { text: e.to_string() },
+        }
+    }
+    if let Some(username) = username {
+        let username = username.trim().to_lowercase();
+        let valid = (2..=24).contains(&username.len())
+            && username.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+        if !valid {
+            return AuthReply::Error {
+                text: "usernames are 2-24 letters, digits or underscores".into(),
+            };
+        }
+        match guard.set_username(&account.email_hash, &username) {
+            Ok(true) => {}
+            Ok(false) => return AuthReply::Error { text: "that username is taken".into() },
+            Err(e) => return AuthReply::Error { text: e.to_string() },
+        }
+    }
+    let account = match guard.session_account(token) {
+        Ok(Some(account)) => account,
+        _ => return AuthReply::Error { text: "your session has expired, log in again".into() },
+    };
+    AuthReply::Profile {
+        name: account.name.clone(),
+        username: account.username.clone(),
+        email: guard.account_email(&account),
+    }
+}
+
+/// Changes the email of the session's account, after checking the current password.
+fn change_email(db: &SharedDb, token: &str, password: &str, new_email: &str) -> AuthReply {
+    let new_email = normalize_email(new_email);
+    if !is_valid_email(&new_email) {
+        return AuthReply::Error { text: "enter a valid email address".into() };
+    }
+    // Read the account, then release the lock before the slow password check.
+    let account = match db.lock().unwrap().session_account(token) {
+        Ok(Some(account)) => account,
+        Ok(None) => return AuthReply::Error { text: "your session has expired, log in again".into() },
+        Err(e) => return AuthReply::Error { text: e.to_string() },
+    };
+    if !verify_password(password, &account.password_hash) {
+        return AuthReply::Error { text: "wrong password".into() };
+    }
+    let mut guard = db.lock().unwrap();
+    match guard.change_email(&account.email_hash, &new_email) {
+        Ok(true) => AuthReply::EmailChanged { email: new_email },
+        Ok(false) => AuthReply::Error { text: "that email is already registered".into() },
+        Err(e) => AuthReply::Error { text: e.to_string() },
+    }
 }
 
 fn normalize_email(email: &str) -> String {

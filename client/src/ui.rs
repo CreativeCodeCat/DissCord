@@ -31,7 +31,9 @@ pub fn root(app: &mut DissCordApp, ui: &mut Ui) {
         app.auth_banner_closed = false;
     }
     if app.is_logged_in() {
-        if app.show_server_settings && app.is_chat_ready() {
+        if app.show_user_settings {
+            user_settings_page(app, ui);
+        } else if app.show_server_settings && app.is_chat_ready() {
             // The settings page takes over the whole window, like Discord's.
             server_settings_page(app, ui);
         } else if app.show_discover {
@@ -999,6 +1001,368 @@ fn add_server_dialog(app: &mut DissCordApp, ctx: &egui::Context) {
     }
 }
 
+/// Full-page user settings, opened from the gear beside your name. Esc or the close button goes back
+/// to the chat.
+fn user_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
+    let mut close = ui.input(|i| i.key_pressed(egui::Key::Escape));
+    let mut log_out = false;
+
+    egui::Panel::left("user_settings_nav")
+        .exact_size(232.0)
+        .frame(Frame::new().fill(SIDEBAR_BG).inner_margin(Margin::symmetric(12, 24)))
+        .show(ui, |ui| {
+            ui.label(RichText::new("USER SETTINGS").small().strong().color(TEXT_MUTED));
+            ui.add_space(8.0);
+            nav_selected(ui, "Account");
+        });
+
+    egui::CentralPanel::default()
+        .frame(Frame::new().fill(APP_BG).inner_margin(Margin::symmetric(40, 24)))
+        .show(ui, |ui| {
+            // The close button and its ESC hint sit at the far right, the hint centred under the X.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                close |= close_button(ui);
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(36.0, 14.0), Sense::hover());
+                ui.painter().text(rect.center(), Align2::CENTER_CENTER, "ESC", FontId::proportional(11.0), TEXT_MUTED);
+            });
+
+            ui.label(RichText::new("Account").size(22.0).strong().color(TEXT_STRONG));
+            ui.add_space(20.0);
+
+            // Account identity, like Discord's Account Info section.
+            ui.horizontal(|ui| {
+                avatar(ui, &app.user, 72.0, None);
+                ui.add_space(12.0);
+                ui.vertical(|ui| {
+                    ui.label(RichText::new(&app.user).size(20.0).strong().color(TEXT_STRONG));
+                    ui.label(RichText::new("Signed in on this computer").small().color(GREEN));
+                });
+            });
+            ui.add_space(20.0);
+            ui.separator();
+            ui.add_space(16.0);
+
+            account_heading(ui, "Account Info");
+            account_row(ui, "Display name", |ui| {
+                if !app.name_editing && ui.add(egui::Button::new("Edit").min_size(egui::vec2(80.0, 30.0))).clicked() {
+                    app.name_editing = true;
+                    app.name_input = app.name_draft.clone().unwrap_or_else(|| app.user.clone());
+                    app.profile_error = None;
+                }
+                let shown = app.name_draft.clone().unwrap_or_else(|| app.user.clone());
+                ui.label(RichText::new(shown).color(if app.name_draft.is_some() { TEXT_STRONG } else { TEXT }));
+            });
+            account_row(ui, "Username", |ui| {
+                if !app.username_editing && ui.add(egui::Button::new("Edit").min_size(egui::vec2(80.0, 30.0))).clicked() {
+                    app.username_editing = true;
+                    app.username_input = app
+                        .username_draft
+                        .clone()
+                        .unwrap_or_else(|| app.account_username.clone().unwrap_or_default());
+                    app.profile_error = None;
+                }
+                let shown = app
+                    .username_draft
+                    .clone()
+                    .or_else(|| app.account_username.clone())
+                    .unwrap_or_else(|| "not loaded".into());
+                ui.label(RichText::new(format!("@{shown}")).color(TEXT));
+            });
+            account_row(ui, "Email", |ui| {
+                if !app.email_editing && ui.add(egui::Button::new("Edit").min_size(egui::vec2(80.0, 30.0))).clicked() {
+                    app.email_editing = true;
+                    app.email_input.clear();
+                    app.email_password.clear();
+                    app.email_error = None;
+                }
+                match (&app.email_draft, &app.account_email, &app.account_email_error) {
+                    (Some((email, _)), _, _) => {
+                        ui.label(RichText::new(email).color(TEXT_STRONG));
+                    }
+                    (None, Some(email), _) => {
+                        ui.label(RichText::new(email).color(TEXT));
+                    }
+                    (None, None, Some(err)) => {
+                        ui.label(RichText::new("Unavailable").color(TEXT_MUTED)).on_hover_text(err);
+                    }
+                    (None, None, None) => {
+                        ui.label(RichText::new("Not on record yet. Set it with Edit.").color(TEXT_MUTED));
+                    }
+                }
+            });
+            ui.add_space(16.0);
+            ui.separator();
+            ui.add_space(16.0);
+
+            account_heading(ui, "Preferences");
+            account_row(ui, "Show the channel create box", |ui| {
+                let mut show = app.create_box_draft.unwrap_or(app.show_create_box);
+                if ui.checkbox(&mut show, "").changed() {
+                    app.create_box_draft = (show != app.show_create_box).then_some(show);
+                }
+            });
+            ui.add_space(16.0);
+            ui.separator();
+            ui.add_space(16.0);
+
+            account_heading(ui, "Session");
+            account_row_text(
+                ui,
+                "Log out",
+                "Sign out of DissCord on this computer.",
+                |ui| {
+                    // Dark text on the pink button, so it reads clearly.
+                    let button = egui::Button::new(RichText::new("Log Out").strong().color(CRUST))
+                        .fill(RED)
+                        .min_size(egui::vec2(120.0, 36.0));
+                    if ui.add(button).clicked() {
+                        log_out = true;
+                    }
+                },
+            );
+        });
+
+    account_edit_dialog(app, ui.ctx());
+    if app.has_account_changes() {
+        account_save_bar(app, ui.ctx());
+    }
+    if log_out {
+        app.show_user_settings = false;
+        app.logout();
+    }
+    if close {
+        app.show_user_settings = false;
+    }
+}
+
+/// The bar at the bottom of the Account page while changes wait to be saved, like the server
+/// settings page's bar.
+fn account_save_bar(app: &mut DissCordApp, ctx: &egui::Context) {
+    let mut save = false;
+    let mut reset = false;
+    egui::Area::new(egui::Id::NULL.with("account_unsaved_changes"))
+        .order(egui::Order::Foreground)
+        .anchor(Align2::CENTER_BOTTOM, egui::vec2(116.0, -24.0))
+        .show(ctx, |ui| {
+            Frame::new()
+                .fill(RAIL_BG)
+                .corner_radius(CornerRadius::same(8))
+                .inner_margin(Margin::symmetric(16, 12))
+                .show(ui, |ui| {
+                    ui.set_max_width(640.0);
+                    ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                            ui.label(RichText::new("Careful – you have unsaved changes!").strong().color(TEXT_STRONG));
+                            if let Some(err) = app.profile_error.as_ref().or(app.email_error.as_ref()) {
+                                ui.label(RichText::new(err).small().color(RED));
+                            }
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let button = egui::Button::new(RichText::new("Save Changes").strong().color(TEXT_STRONG))
+                                .fill(GREEN)
+                                .min_size(egui::vec2(0.0, 32.0));
+                            save |= ui.add(button).clicked();
+                            if ui.link("Reset").clicked() {
+                                reset = true;
+                            }
+                        });
+                    });
+                });
+        });
+    if save {
+        app.save_account_changes();
+    }
+    if reset {
+        app.reset_account_changes();
+    }
+}
+
+/// The popup for changing the display name, the username or the email. Esc, the X and Cancel close
+/// it without saving.
+fn account_edit_dialog(app: &mut DissCordApp, ctx: &egui::Context) {
+    let field = if app.name_editing {
+        Some((ProfileField::DisplayName, "Edit display name"))
+    } else if app.username_editing {
+        Some((ProfileField::Username, "Edit username"))
+    } else if app.email_editing {
+        Some((ProfileField::Email, "Change email"))
+    } else {
+        None
+    };
+    let Some((field, title)) = field else {
+        return;
+    };
+    let mut close = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    egui::Window::new(title)
+        .title_bar(false)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .default_width(440.0)
+        .frame(Frame::new().fill(SIDEBAR_BG).corner_radius(CornerRadius::same(8)).inner_margin(Margin::same(24)))
+        .show(ctx, |ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                close |= close_button(ui);
+            });
+            ui.vertical_centered(|ui| {
+                ui.label(RichText::new(title).size(22.0).strong().color(TEXT_STRONG));
+            });
+            ui.add_space(16.0);
+            match field {
+                ProfileField::Email => email_form(ui, app),
+                _ => profile_form(ui, app, field),
+            }
+        });
+    if close {
+        app.name_editing = false;
+        app.username_editing = false;
+        app.email_editing = false;
+        app.profile_error = None;
+        app.email_error = None;
+    }
+}
+
+/// Which name the Account page's form changes.
+#[derive(Clone, Copy, PartialEq)]
+enum ProfileField {
+    DisplayName,
+    Username,
+    Email,
+}
+
+/// The form for the display name or the username. Usernames are kept lowercase as they are typed.
+fn profile_form(ui: &mut Ui, app: &mut DissCordApp, field: ProfileField) {
+    ui.set_max_width(420.0);
+    let (label, hint, input) = match field {
+        ProfileField::DisplayName => ("NEW DISPLAY NAME", "How your name appears in chat", &mut app.name_input),
+        ProfileField::Username => ("NEW USERNAME", "lowercase letters, digits and _", &mut app.username_input),
+        ProfileField::Email => unreachable!("the email has its own form"),
+    };
+    field_label(ui, label);
+    let resp = ui.add(
+        TextEdit::singleline(input)
+            .hint_text(hint)
+            .margin(Margin::symmetric(10, 8))
+            .desired_width(f32::INFINITY),
+    );
+    if field == ProfileField::Username && resp.changed() {
+        app.username_input = app.username_input.to_lowercase();
+    }
+    if let Some(err) = &app.profile_error {
+        ui.add_space(6.0);
+        ui.label(RichText::new(err).color(RED));
+    }
+    ui.add_space(8.0);
+    let (cancel, save) = form_buttons(ui);
+    if cancel {
+        match field {
+            ProfileField::DisplayName => app.name_editing = false,
+            ProfileField::Username => app.username_editing = false,
+            ProfileField::Email => app.email_editing = false,
+        }
+        app.profile_error = None;
+    }
+    if save {
+        match field {
+            ProfileField::DisplayName => {
+                app.name_draft = Some(app.name_input.trim().to_string());
+                app.name_editing = false;
+            }
+            ProfileField::Username => {
+                app.username_draft = Some(app.username_input.trim().to_lowercase());
+                app.username_editing = false;
+            }
+            ProfileField::Email => {}
+        }
+        app.profile_error = None;
+    }
+    ui.add_space(12.0);
+}
+
+/// The email form on the Account page. Saving asks the auth service, which checks the password.
+fn email_form(ui: &mut Ui, app: &mut DissCordApp) {
+    ui.set_max_width(420.0);
+    field_label(ui, "NEW EMAIL");
+    ui.add(
+        TextEdit::singleline(&mut app.email_input)
+            .hint_text("you@example.com")
+            .margin(Margin::symmetric(10, 8))
+            .desired_width(f32::INFINITY),
+    );
+    ui.add_space(8.0);
+    field_label(ui, "CURRENT PASSWORD");
+    ui.add(
+        TextEdit::singleline(&mut app.email_password)
+            .password(true)
+            .margin(Margin::symmetric(10, 8))
+            .desired_width(f32::INFINITY),
+    );
+    if let Some(err) = &app.email_error {
+        ui.add_space(6.0);
+        ui.label(RichText::new(err).color(RED));
+    }
+    ui.add_space(12.0);
+    let (cancel, save) = form_buttons(ui);
+    if cancel {
+        app.email_editing = false;
+        app.email_error = None;
+    }
+    if save {
+        app.email_draft = Some((app.email_input.trim().to_string(), app.email_password.clone()));
+        app.email_editing = false;
+        app.email_error = None;
+    }
+}
+
+/// The Cancel and Save buttons at the foot of a popup form. Returns (cancel clicked, save clicked).
+fn form_buttons(ui: &mut Ui) -> (bool, bool) {
+    let mut cancel = false;
+    let mut save = false;
+    ui.horizontal(|ui| {
+        let cancel_button = egui::Button::new(RichText::new("Cancel").strong().color(TEXT_STRONG))
+            .fill(HOVER_BG)
+            .min_size(egui::vec2(132.0, 40.0));
+        cancel = ui.add(cancel_button).clicked();
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Dark text on the mauve button, so it reads clearly.
+            let save_button = egui::Button::new(RichText::new("Save").strong().color(CRUST))
+                .fill(ACCENT)
+                .min_size(egui::vec2(132.0, 40.0));
+            save = ui.add(save_button).clicked();
+        });
+    });
+    (cancel, save)
+}
+
+/// A section heading on the account page.
+fn account_heading(ui: &mut Ui, title: &str) {
+    ui.label(RichText::new(title).size(18.0).strong().color(TEXT_STRONG));
+    ui.add_space(12.0);
+}
+
+/// One setting: its name on the left, and whatever `right` draws on the right.
+fn account_row(ui: &mut Ui, label: &str, right: impl FnOnce(&mut Ui)) {
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(label).color(TEXT_STRONG));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), right);
+    });
+    ui.add_space(8.0);
+}
+
+/// A setting with a short description under its name.
+fn account_row_text(ui: &mut Ui, label: &str, description: &str, right: impl FnOnce(&mut Ui)) {
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            ui.label(RichText::new(label).color(TEXT_STRONG));
+            ui.label(RichText::new(description).small().color(TEXT_MUTED));
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), right);
+    });
+    ui.add_space(8.0);
+}
+
 /// Full-page server settings, opened from the server menu by the owner.
 /// Esc or the close button goes back to the chat.
 fn server_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
@@ -1550,25 +1914,6 @@ fn new_messages_divider(ui: &mut Ui) {
     painter.text(pill.center(), Align2::CENTER_CENTER, "NEW", FontId::proportional(10.0), TEXT_STRONG);
 }
 
-/// Items in a user's menu (the gear under the name in the user bar).
-fn user_menu_items(ui: &mut Ui, app: &DissCordApp, actions: &mut Vec<MenuAction>) {
-    if menu_item(ui, "Copy my name", false) {
-        actions.push(MenuAction::CopyText(app.user.clone()));
-    }
-    let box_label = if app.show_create_box {
-        "Hide channel create box"
-    } else {
-        "Show channel create box"
-    };
-    if menu_item(ui, box_label, false) {
-        actions.push(MenuAction::ToggleCreateBox);
-    }
-    menu_divider(ui);
-    if menu_item(ui, "Log out", true) {
-        actions.push(MenuAction::Logout);
-    }
-}
-
 /// Items in a channel's menu (right-click, or the gear on its row).
 fn channel_menu_items(ui: &mut Ui, name: &str, unread: bool, actions: &mut Vec<MenuAction>) {
     if unread && menu_item(ui, "Mark as read", false) {
@@ -1613,7 +1958,9 @@ fn user_bar(app: &DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     let gear = icon_button(ui, Icon::Gear, 28.0, false).on_hover_text("User settings");
-                    egui::Popup::menu(&gear).show(|ui| user_menu_items(ui, app, actions));
+                    if gear.clicked() {
+                        actions.push(MenuAction::OpenUserSettings);
+                    }
                     icon_button(ui, Icon::ChevronDown, 16.0, false).on_hover_text(VOICE_TIP);
                     icon_button(ui, Icon::Headset, 28.0, false).on_hover_text(VOICE_TIP);
                     icon_button(ui, Icon::ChevronDown, 16.0, false).on_hover_text(VOICE_TIP);
@@ -1938,6 +2285,21 @@ fn message_row(
     let pointer = ui.ctx().pointer_hover_pos();
     let over_toolbar = matches!((previous, pointer), (Some(r), Some(p)) if r.contains(p));
     let over_row = pointer.is_some_and(|p| full.contains(p));
+    // A right-click anywhere on your own message opens the same menu as the ⋯ button, at the
+    // pointer. Skipped when another menu (such as a user's name menu) opened this frame.
+    if m.id != 0 && m.author_id == app.user_id && !egui::Popup::is_any_open(ui.ctx()) {
+        let right = ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Secondary));
+        if let (true, Some(p)) = (right, pointer) {
+            if full.contains(p) {
+                set_open_menu(ui.ctx(), Some((m.id, OpenMenu::Context)));
+                let frame = ui.ctx().cumulative_frame_nr();
+                ui.ctx().data_mut(|d| {
+                    d.insert_temp(egui::Id::NULL.with("message_menu_pos"), p);
+                    d.insert_temp(egui::Id::NULL.with("message_menu_opened"), frame);
+                });
+            }
+        }
+    }
     let open = open_menu(ui.ctx());
     let shows = match open {
         Some((id, _)) => id == m.id,
@@ -1975,6 +2337,8 @@ fn set_open_menu(ctx: &egui::Context, menu: Option<(i64, OpenMenu)>) {
 enum OpenMenu {
     Picker,
     More,
+    /// Opened by right-clicking the message, at the pointer.
+    Context,
 }
 
 /// The colour image for an emoji, drawn at `size` points square. `None` when there is no image.
@@ -2107,7 +2471,7 @@ fn message_toolbar(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, row: egui::R
                             clicked = Some((open != Some(OpenMenu::Picker)).then_some(OpenMenu::Picker));
                         }
                         // Edit and delete are only offered for your own messages.
-                        if m.author == app.user {
+                        if m.author_id == app.user_id {
                             let more = ui.add(egui::Button::new(RichText::new("⋯").strong().color(TEXT_MUTED)).frame(false));
                             more_rect = more.rect;
                             if more.clicked() {
@@ -2122,10 +2486,16 @@ fn message_toolbar(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, row: egui::R
     let mut menu_rect: Option<egui::Rect> = None;
     let mut picked = false;
     if let Some(menu) = open {
-        let button = if menu == OpenMenu::Picker { picker_rect } else { more_rect };
+        let at = match menu {
+            OpenMenu::Picker => picker_rect.left_bottom() + egui::vec2(0.0, 4.0),
+            OpenMenu::More => more_rect.left_bottom() + egui::vec2(0.0, 4.0),
+            OpenMenu::Context => ctx
+                .data(|d| d.get_temp(egui::Id::NULL.with("message_menu_pos")))
+                .unwrap_or(row.right_top()),
+        };
         let shown = egui::Area::new(egui::Id::NULL.with(("message_menu", m.id)))
             .order(egui::Order::Foreground)
-            .fixed_pos(button.left_bottom() + egui::vec2(0.0, 4.0))
+            .fixed_pos(at)
             .show(&ctx, |ui| {
                 Frame::new()
                     .fill(SIDEBAR_BG)
@@ -2142,7 +2512,7 @@ fn message_toolbar(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, row: egui::R
                         OpenMenu::Picker => {
                             picked = emoji_picker(ui, m.id, actions);
                         }
-                        OpenMenu::More => {
+                        OpenMenu::More | OpenMenu::Context => {
                             ui.set_width(180.0);
                             if menu_item_icon(ui, Icon::Pencil, "Edit Message", false) {
                                 actions.push(MenuAction::StartEdit { id: m.id, text: m.text.clone() });
@@ -2167,7 +2537,13 @@ fn message_toolbar(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, row: egui::R
         next = None;
     }
     let pos = ctx.input(|i| i.pointer.interact_pos());
-    let clicked_away = ctx.input(|i| i.pointer.any_click())
+    // The frame a right-click opened the menu is not a click away: egui may move the menu on
+    // screen, which can leave the pointer outside it.
+    let opened_now = open == Some(OpenMenu::Context)
+        && ctx.data(|d| d.get_temp::<u64>(egui::Id::NULL.with("message_menu_opened")))
+            == Some(ctx.cumulative_frame_nr());
+    let clicked_away = !opened_now
+        && ctx.input(|i| i.pointer.any_click())
         && pos.is_some_and(|p| !area.response.rect.contains(p) && !menu_rect.is_some_and(|r| r.contains(p)));
     if clicked_away && clicked.is_none() {
         next = None;
@@ -2185,32 +2561,13 @@ fn message_text(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut V
         edit_box(ui, m.id, actions);
         return;
     }
-    let resp = ui
-        .horizontal(|ui| {
-            let resp = ui.add(egui::Label::new(RichText::new(&m.text).color(TEXT)).sense(Sense::click()));
-            if m.edited {
-                ui.label(RichText::new("(edited)").small().color(TEXT_MUTED));
-            }
-            resp
-        })
-        .inner
-        .on_hover_text(time_label(m.timestamp));
-    if m.id != 0 {
-        resp.context_menu(|ui| {
-            emoji_picker(ui, m.id, actions);
-            if m.author == app.user {
-                ui.separator();
-                if ui.button("Edit Message").clicked() {
-                    actions.push(MenuAction::StartEdit { id: m.id, text: m.text.clone() });
-                    ui.close();
-                }
-                if ui.button("Delete Message").clicked() {
-                    actions.push(MenuAction::AskDelete(m.id));
-                    ui.close();
-                }
-            }
-        });
-    }
+    ui.horizontal(|ui| {
+        ui.add(egui::Label::new(RichText::new(&m.text).color(TEXT)).sense(Sense::hover()))
+            .on_hover_text(time_label(m.timestamp));
+        if m.edited {
+            ui.label(RichText::new("(edited)").small().color(TEXT_MUTED));
+        }
+    });
     if !m.reactions.is_empty() {
         ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {

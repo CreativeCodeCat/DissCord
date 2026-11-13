@@ -42,14 +42,16 @@ impl State {
     /// Every member of the server, each marked online or offline.
     fn presence(&self) -> Vec<UserStatus> {
         let owner = self.db.owner().ok().flatten();
+        let names = self.db.display_names().unwrap_or_default();
         self.db
             .member_names()
             .unwrap_or_default()
             .into_iter()
-            .map(|name| {
-                let online = self.online.contains(&name);
-                let owner = owner.as_deref() == Some(name.as_str());
-                UserStatus { name, online, owner }
+            .map(|id| {
+                let online = self.online.contains(&id);
+                let owner = owner.as_deref() == Some(id.as_str());
+                let name = names.get(&id).cloned().unwrap_or_else(|| id.clone());
+                UserStatus { id, name, online, owner }
             })
             .collect()
     }
@@ -267,9 +269,9 @@ where
     }
 
     // Handshake: otherwise the first message must be a Connect carrying a session token.
-    let user = match serde_json::from_str::<ClientMsg>(&first) {
+    let (user, display) = match serde_json::from_str::<ClientMsg>(&first) {
         Ok(ClientMsg::Connect { token }) => match check_session(&state, &auth_addr, &token).await {
-            Ok(name) => name,
+            Ok(identity) => (identity.id, identity.name),
             Err(text) => {
                 send(&mut writer, &ServerMsg::Error { text }).await?;
                 return Ok(());
@@ -285,7 +287,7 @@ where
     // connection adds one entry to `online`, and the member shows as online while any is open.
     let (users, server_name, server_description, server_icon) = {
         let mut s = state.lock().unwrap();
-        s.db.add_member(&user, now_secs())?;
+        s.db.add_member(&user, &display, now_secs())?;
         s.online.push(user.clone());
         (s.presence(), s.db.server_name()?, s.db.server_description()?, s.db.server_icon()?)
     };
@@ -295,7 +297,8 @@ where
     let _online = OnlineGuard { state: state.clone(), tx: tx.clone(), user: user.clone() };
     let server_public = state.lock().unwrap().db.is_public().unwrap_or(false);
     let welcome = ServerMsg::Welcome {
-        name: user.clone(),
+        name: display.clone(),
+        user_id: user.clone(),
         server_name,
         server_description,
         server_icon,
@@ -430,7 +433,8 @@ where
                         let mut message = ChatMessage {
                             id: 0,
                             channel: channel.clone(),
-                            author: user.clone(),
+                            author: display.clone(),
+                            author_id: user.clone(),
                             text,
                             timestamp: now_secs(),
                             edited: false,
@@ -626,11 +630,15 @@ fn pin_ok(state: &SharedState, kind: &str, addr: &str, fingerprint: &str) -> boo
 /// Works out who a connecting token belongs to. The auth service is asked first. If it cannot be
 /// reached, a session it confirmed within `SESSION_CACHE_SECS` is still accepted. A session the
 /// auth service rejects is refused at once and forgotten here.
-async fn check_session(state: &SharedState, auth_addr: &str, token: &str) -> Result<String, String> {
+async fn check_session(state: &SharedState, auth_addr: &str, token: &str) -> Result<Identity, String> {
     match verify_session(state, auth_addr, token).await {
-        Ok(name) => {
-            let _ = state.lock().unwrap().db.cache_session(token, &name, now_secs());
-            Ok(name)
+        Ok(identity) => {
+            let _ = state
+                .lock()
+                .unwrap()
+                .db
+                .cache_session(token, &identity.id, &identity.name, now_secs());
+            Ok(identity)
         }
         Err(VerifyError::Rejected(text)) => {
             let _ = state.lock().unwrap().db.forget_cached_session(token);
@@ -639,14 +647,20 @@ async fn check_session(state: &SharedState, auth_addr: &str, token: &str) -> Res
         Err(VerifyError::Unreachable(text)) => {
             let cached = state.lock().unwrap().db.cached_session(token).ok().flatten();
             match cached {
-                Some((name, verified)) if now_secs().saturating_sub(verified) <= SESSION_CACHE_SECS => {
+                Some((id, name, verified)) if now_secs().saturating_sub(verified) <= SESSION_CACHE_SECS => {
                     println!("auth service unreachable, accepting {name} from the session cache");
-                    Ok(name)
+                    Ok(Identity { id, name })
                 }
                 _ => Err(text),
             }
         }
     }
+}
+
+/// Who a session belongs to: the hidden account id, and the name to show.
+struct Identity {
+    id: String,
+    name: String,
 }
 
 /// Why a session could not be confirmed by the auth service.
@@ -658,7 +672,7 @@ enum VerifyError {
 }
 
 /// Asks the auth service who a session token belongs to. Returns the display name.
-async fn verify_session(state: &SharedState, auth_addr: &str, token: &str) -> Result<String, VerifyError> {
+async fn verify_session(state: &SharedState, auth_addr: &str, token: &str) -> Result<Identity, VerifyError> {
     use VerifyError::{Rejected, Unreachable};
     let (mut stream, fingerprint) = common::tls::connect_async(auth_addr)
         .await
@@ -681,7 +695,7 @@ async fn verify_session(state: &SharedState, auth_addr: &str, token: &str) -> Re
         .map_err(|e| Unreachable(format!("auth service unavailable: {e}")))?
         .ok_or_else(|| Unreachable("auth service closed the connection".to_string()))?;
     match serde_json::from_str::<AuthReply>(&line) {
-        Ok(AuthReply::Verified { name }) => Ok(name),
+        Ok(AuthReply::Verified { id, name }) => Ok(Identity { id, name }),
         Ok(AuthReply::Error { text }) => Err(Rejected(text)),
         _ => Err(Unreachable("unexpected reply from auth service".into())),
     }

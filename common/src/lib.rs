@@ -28,6 +28,12 @@ pub enum AuthRequest {
     Verify { token: String },
     /// End a session so its token stops working.
     Logout { token: String },
+    /// Ask for the account's names and email. Needs a valid session.
+    Profile { token: String },
+    /// Change the name shown in chat, the username, or both. Needs a valid session.
+    UpdateProfile { token: String, name: Option<String>, username: Option<String> },
+    /// Change the account's email. Needs the session and the current password.
+    ChangeEmail { token: String, password: String, new_email: String },
 }
 
 /// Replies from the auth service.
@@ -37,8 +43,13 @@ pub enum AuthReply {
     /// Register or login succeeded. Keep `token` and send it to chat servers.
     Session { token: String, name: String },
     /// The token is valid for this account.
-    Verified { name: String },
+    /// `id` identifies the account in chat; `name` is the name to show.
+    Verified { id: String, name: String },
     LoggedOut,
+    /// The account's display name, username, and email if one is on record.
+    Profile { name: String, username: String, email: Option<String> },
+    /// The email was changed to this one.
+    EmailChanged { email: String },
     Error { text: String },
 }
 
@@ -65,7 +76,11 @@ pub struct ChatMessage {
     #[serde(default)]
     pub id: i64,
     pub channel: String,
+    /// The author's name to show.
     pub author: String,
+    /// The author's hidden account id. Stays the same when the name changes.
+    #[serde(default)]
+    pub author_id: String,
     pub text: String,
     /// Unix timestamp in seconds.
     pub timestamp: u64,
@@ -80,6 +95,9 @@ pub struct ChatMessage {
 /// A member of a server and whether they are connected right now.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserStatus {
+    /// The hidden account id.
+    #[serde(default)]
+    pub id: String,
     pub name: String,
     pub online: bool,
     /// True for the one member who owns this server (the first user to join it).
@@ -139,6 +157,9 @@ pub enum ServerMsg {
     /// `name` is your own display name; `server_name` and `server_description` describe the server.
     Welcome {
         name: String,
+        /// Your hidden account id.
+        #[serde(default)]
+        user_id: String,
         server_name: String,
         server_description: String,
         server_icon: Option<String>,
