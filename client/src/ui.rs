@@ -4,7 +4,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use chrono::NaiveDate;
-use common::{ChatMessage, DEFAULT_ADDR};
+use common::ChatMessage;
 use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, Frame, Margin, Response, RichText, Sense, TextEdit, Ui};
 
 use crate::app::{DissCordApp, Entry, MenuAction};
@@ -801,7 +801,7 @@ fn add_server_dialog(app: &mut DissCordApp, ctx: &egui::Context) {
             ui.add_space(4.0);
             let resp = ui.add(
                 TextEdit::singleline(&mut app.add_addr)
-                    .hint_text(DEFAULT_ADDR)
+                    .hint_text("chat.example.com")
                     .margin(Margin::symmetric(10, 10))
                     .desired_width(f32::INFINITY),
             );
@@ -810,7 +810,7 @@ fn add_server_dialog(app: &mut DissCordApp, ctx: &egui::Context) {
             ui.label(RichText::new("Addresses should look like").small().color(TEXT_MUTED));
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
-                for example in [DEFAULT_ADDR, "192.168.1.20:7878"] {
+                for example in ["chat.example.com", "myserver.example.net"] {
                     Frame::new()
                         .fill(HOVER_BG)
                         .corner_radius(CornerRadius::same(4))
@@ -851,7 +851,7 @@ fn add_server_dialog(app: &mut DissCordApp, ctx: &egui::Context) {
 
             ui.add_space(20.0);
             ui.horizontal(|ui| {
-                if ui.add(egui::Button::new(RichText::new("Back").color(LINK)).frame(false)).clicked() {
+                if ui.link("Back").clicked() {
                     close = true;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

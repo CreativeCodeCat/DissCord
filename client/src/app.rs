@@ -65,6 +65,9 @@ pub struct Session {
     pub token: String,
 }
 
+/// The port used when an address is typed without one.
+const DEFAULT_PORT: u16 = 7878;
+
 /// Where the edit box keeps its text for a message.
 pub fn edit_buffer(id: i64) -> egui::Id {
     egui::Id::NULL.with(("edit_buffer", id))
@@ -461,6 +464,8 @@ impl DissCordApp {
     pub fn add_server(&mut self, ctx: &egui::Context) {
         let addr = match self.add_addr.trim() {
             "" => DEFAULT_ADDR.to_string(),
+            // A name or address without a port uses the default chat port.
+            a if !a.contains(':') => format!("{a}:{DEFAULT_PORT}"),
             a => a.to_string(),
         };
         // The server sends its own name when we connect, so the address is the first label.
