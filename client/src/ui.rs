@@ -1793,6 +1793,10 @@ fn message_text(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut V
                 actions.push(MenuAction::StartEdit { id: m.id, text: m.text.clone() });
                 ui.close();
             }
+            if ui.button("Delete message").clicked() {
+                actions.push(MenuAction::Delete(m.id));
+                ui.close();
+            }
         });
     }
 }

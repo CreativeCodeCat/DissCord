@@ -84,6 +84,7 @@ pub enum Entry {
 /// runs; the app applies them once the frame is finished.
 pub enum MenuAction {
     StartEdit { id: i64, text: String },
+    Delete(i64),
     SaveEdit(i64),
     CancelEdit,
     Mention(String),
@@ -564,6 +565,14 @@ impl DissCordApp {
                     .or_default()
                     .push(Entry::Chat(message));
             }
+            ServerMsg::MessageDeleted { channel, id } => {
+                if let Some(list) = self.messages.get_mut(&channel) {
+                    list.retain(|e| !matches!(e, Entry::Chat(m) if m.id == id));
+                }
+                if self.editing == Some(id) {
+                    self.editing = None;
+                }
+            }
             ServerMsg::MessageEdited { channel, id, text } => {
                 let entry = self.messages.get_mut(&channel).and_then(|list| {
                     list.iter_mut().find_map(|e| match e {
@@ -648,6 +657,7 @@ impl DissCordApp {
                 self.editing = None;
             }
             MenuAction::CancelEdit => self.editing = None,
+            MenuAction::Delete(id) => self.send(ClientMsg::Delete { id }),
             MenuAction::Mention(name) => {
                 self.input.push_str(&format!("@{name} "));
                 self.focus_input = true;

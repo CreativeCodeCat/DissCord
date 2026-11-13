@@ -144,5 +144,5 @@ client is in, plus `joined` (with up to 200 messages of history).
 - Databases from earlier versions keep their old `accounts` and `users`
   tables, which are no longer used. Accounts registered on the old chat
   servers must register again with the auth service.
-- You can edit your own messages, but not delete them. The GUI has no
-  reactions or direct messages yet.
+- You can edit and delete your own messages. The GUI has no reactions or
+  direct messages yet.

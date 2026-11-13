@@ -212,6 +212,24 @@ impl Db {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// Deletes a message, but only when `author` wrote it. Returns the message's channel, or
+    /// `None` when there is no such message by that author.
+    pub fn delete_message(&self, id: i64, author: &str) -> rusqlite::Result<Option<String>> {
+        use rusqlite::OptionalExtension;
+        let channel: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT channel FROM messages WHERE id = ?1 AND author = ?2",
+                params![id, author],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if channel.is_some() {
+            self.conn.execute("DELETE FROM messages WHERE id = ?1", params![id])?;
+        }
+        Ok(channel)
+    }
+
     /// Changes the text of a message, but only when `author` wrote it. Returns the message's
     /// channel, or `None` when there is no such message by that author.
     pub fn edit_message(&self, id: i64, author: &str, text: &str) -> rusqlite::Result<Option<String>> {
