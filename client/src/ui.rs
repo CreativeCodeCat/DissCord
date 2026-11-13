@@ -239,7 +239,7 @@ fn server_rail(app: &DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
             ui.add_space(12.0);
             ui.vertical_centered(|ui| {
                 // Direct messages sit above the servers, like Discord's Home.
-                if server_button(ui, "Direct messages", None, app.home).on_hover_text("Direct messages").clicked() {
+                if dm_button(ui, app.home).on_hover_text("Direct messages").clicked() {
                     actions.push(MenuAction::OpenHome);
                 }
                 ui.add_space(8.0);
@@ -267,6 +267,23 @@ fn server_rail(app: &DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
                 }
             });
         });
+}
+
+/// The Direct messages button at the top of the rail: a chat bubble (SVG, see
+/// `client/assets/dm.svg`). It fills with the accent colour when open or hovered.
+fn dm_button(ui: &mut Ui, open: bool) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(48.0, 48.0), Sense::click());
+    let (fill, radius) = if open || resp.hovered() {
+        (pal().accent, 16)
+    } else {
+        (pal().input_bg, 24)
+    };
+    ui.painter().rect_filled(rect, CornerRadius::same(radius), fill);
+    let icon = egui::Rect::from_center_size(rect.center(), egui::vec2(24.0, 24.0));
+    egui::Image::new(egui::include_image!("../assets/dm.svg"))
+        .tint(if open || resp.hovered() { pal().text_strong } else { pal().text_muted })
+        .paint_at(ui, icon);
+    resp
 }
 
 /// A server icon: first letter of the name on a colour. The selected one is rounder with a bar.
