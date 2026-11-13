@@ -2282,7 +2282,7 @@ fn messages(app: &DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
         .stick_to_bottom(true)
         .show(ui, |ui| {
             ui.add_space(16.0);
-            welcome(ui, &channel);
+            welcome(ui, app, &channel);
 
             if !query.is_empty() && !entries.iter().any(|e| matches_query(e, &query)) {
                 ui.add_space(8.0);
@@ -2339,17 +2339,23 @@ fn messages(app: &DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
         });
 }
 
-fn welcome(ui: &mut Ui, channel: &str) {
+fn welcome(ui: &mut Ui, app: &DissCordApp, channel: &str) {
+    // A direct message is named after the other member, not as a channel.
+    let (title, subtitle) = if channel.starts_with("dm-") {
+        let label = app.channel_label();
+        let name = label.trim_start_matches("@ ").to_string();
+        (label, format!("This is the start of your direct messages with {name}."))
+    } else {
+        (
+            format!("Welcome to #{channel}!"),
+            format!("This is the start of the #{channel} channel."),
+        )
+    };
     ui.horizontal(|ui| {
         ui.add_space(16.0);
         ui.vertical(|ui| {
-            ui.label(
-                RichText::new(format!("Welcome to #{channel}!"))
-                    .size(28.0)
-                    .strong()
-                    .color(pal().text_strong),
-            );
-            ui.label(RichText::new(format!("This is the start of the #{channel} channel.")).color(pal().text_muted));
+            ui.label(RichText::new(title).size(28.0).strong().color(pal().text_strong));
+            ui.label(RichText::new(subtitle).color(pal().text_muted));
         });
     });
     ui.add_space(16.0);
