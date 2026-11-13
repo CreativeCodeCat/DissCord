@@ -863,11 +863,12 @@ impl DissCordApp {
     }
 
     pub fn select_server(&mut self, index: usize, ctx: &egui::Context) {
+        // Choosing a server always leaves the Direct messages page, even if it is already selected.
+        self.home = false;
         if index >= self.servers.len() || self.selected == Some(index) {
             return;
         }
         self.selected = Some(index);
-        self.home = false;
         self.connect_selected(ctx);
     }
 
