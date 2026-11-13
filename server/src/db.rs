@@ -43,6 +43,12 @@ CREATE TABLE IF NOT EXISTS messages (
     edited    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS messages_by_channel ON messages (channel, id);
+CREATE TABLE IF NOT EXISTS direct_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    a  TEXT NOT NULL,
+    b  TEXT NOT NULL,
+    UNIQUE (a, b)
+);
 ";
 
 pub struct Db {
@@ -134,6 +140,69 @@ impl Db {
     }
 
     /// The owner of this server, by id, if anyone has joined it yet.
+    /// The direct message channel between two members, created the first time.
+    pub fn open_direct_message(&self, a: &str, b: &str) -> rusqlite::Result<String> {
+        let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+        self.conn.execute(
+            "INSERT OR IGNORE INTO direct_messages (a, b) VALUES (?1, ?2)",
+            params![lo, hi],
+        )?;
+        let id: i64 = self.conn.query_row(
+            "SELECT id FROM direct_messages WHERE a = ?1 AND b = ?2",
+            params![lo, hi],
+            |row| row.get(0),
+        )?;
+        Ok(format!("dm-{id}"))
+    }
+
+    /// Whether `user` is one of the two members of a direct message channel.
+    pub fn is_direct_message_member(&self, channel: &str, user: &str) -> rusqlite::Result<bool> {
+        let Some(id) = channel.strip_prefix("dm-").and_then(|n| n.parse::<i64>().ok()) else {
+            return Ok(false);
+        };
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM direct_messages WHERE id = ?1 AND (a = ?2 OR b = ?2)",
+            params![id, user],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    /// The direct message channels `user` is part of, each with the other member's id.
+    pub fn direct_messages_of(&self, user: &str) -> rusqlite::Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, a, b FROM direct_messages WHERE a = ?1 OR b = ?1 ORDER BY id",
+        )?;
+        let rows = stmt.query_map(params![user], |row| {
+            let id: i64 = row.get(0)?;
+            let a: String = row.get(1)?;
+            let b: String = row.get(2)?;
+            let other = if a == user { b } else { a };
+            Ok((format!("dm-{id}"), other))
+        })?;
+        rows.collect()
+    }
+
+    /// The member whose display name is `display`, if there is one.
+    pub fn member_by_display_name(&self, display: &str) -> rusqlite::Result<Option<String>> {
+        use rusqlite::OptionalExtension;
+        self.conn
+            .query_row(
+                "SELECT name FROM members WHERE COALESCE(display, name) = ?1 LIMIT 1",
+                params![display],
+                |row| row.get(0),
+            )
+            .optional()
+    }
+
+    /// The channel a message is in, if the message exists.
+    pub fn message_channel(&self, id: i64) -> rusqlite::Result<Option<String>> {
+        use rusqlite::OptionalExtension;
+        self.conn
+            .query_row("SELECT channel FROM messages WHERE id = ?1", params![id], |row| row.get(0))
+            .optional()
+    }
+
     pub fn owner(&self) -> rusqlite::Result<Option<String>> {
         use rusqlite::OptionalExtension;
         self.conn
@@ -298,14 +367,16 @@ impl Db {
 
     /// Deletes a message, but only when `author` wrote it. Returns the message's channel, or
     /// `None` when there is no such message by that author.
-    /// Deletes a message if `requester` wrote it, or always when `any` is true (the server owner).
+    /// Deletes a message if `requester` wrote it, or always when `any` is true (the server owner,
+    /// except in direct messages, which only their members can delete from).
     /// Returns the message's channel, or `None` if nothing was deleted.
     pub fn delete_message(&self, id: i64, requester: &str, any: bool) -> rusqlite::Result<Option<String>> {
         use rusqlite::OptionalExtension;
         let channel: Option<String> = self
             .conn
             .query_row(
-                "SELECT channel FROM messages WHERE id = ?1 AND (?2 OR author = ?3)",
+                "SELECT channel FROM messages WHERE id = ?1
+                 AND (author = ?3 OR (?2 AND channel NOT LIKE 'dm-%'))",
                 params![id, any, requester],
                 |row| row.get(0),
             )

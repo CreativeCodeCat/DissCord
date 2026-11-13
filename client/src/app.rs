@@ -7,7 +7,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::Receiver;
 
-use common::{is_valid_email, AuthReply, AuthRequest, ChatMessage, ClientMsg, ServerMsg, DEFAULT_ADDR};
+use common::{is_valid_email, AuthReply, AuthRequest, ChatMessage, ClientMsg, DirectMessage, ServerMsg, DEFAULT_ADDR};
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 
@@ -102,6 +102,8 @@ pub enum MenuAction {
     CreateChannel,
     ToggleMembers,
     Logout,
+    /// Open a direct message with the member with this display name.
+    OpenDm(String),
     SelectServer(usize),
     RemoveServer(usize),
     OpenAddServer,
@@ -194,6 +196,8 @@ pub struct DissCordApp {
     pub user: String,
     pub channel: String,
     pub channels: Vec<String>,
+    /// Your direct messages on this server.
+    pub dms: Vec<DirectMessage>,
     /// Names of members currently online, in the order the server sent them.
     pub online: Vec<String>,
     /// Names of members who are not connected right now.
@@ -445,6 +449,15 @@ impl DissCordApp {
     }
 
     /// Name of the selected server, for the sidebar header.
+    /// How the open channel is named: `#name`, or `@name` for a direct message.
+    pub fn channel_label(&self) -> String {
+        match self.dms.iter().find(|d| d.channel == self.channel) {
+            Some(dm) => format!("@ {}", dm.name),
+            None if self.channel.starts_with("dm-") => "@ Direct message".into(),
+            None => format!("#{}", self.channel),
+        }
+    }
+
     pub fn selected_name(&self) -> Option<&str> {
         self.selected
             .and_then(|i| self.servers.get(i))
@@ -531,6 +544,7 @@ impl DissCordApp {
 
     fn clear_session(&mut self) {
         self.channels.clear();
+        self.dms.clear();
         self.online.clear();
         self.offline.clear();
         self.owner = None;
@@ -802,6 +816,10 @@ impl DissCordApp {
                 }
             }
             ServerMsg::Activity { channel } => {
+                // A direct message someone just started with you is not in your list yet.
+                if channel.starts_with("dm-") && !self.dms.iter().any(|d| d.channel == channel) {
+                    self.send(ClientMsg::ListDirectMessages);
+                }
                 if channel != self.channel {
                     self.unread.insert(channel);
                 }
@@ -811,6 +829,7 @@ impl DissCordApp {
             // Only sent in answer to a search, never on the chat connection.
             ServerMsg::Info { .. } | ServerMsg::Peers { .. } => {}
             ServerMsg::Channels { channels } => self.channels = channels,
+            ServerMsg::DirectMessages { list } => self.dms = list,
             ServerMsg::Presence { users } => {
                 self.online = users.iter().filter(|u| u.online).map(|u| u.name.clone()).collect();
                 self.offline = users.iter().filter(|u| !u.online).map(|u| u.name.clone()).collect();
@@ -892,6 +911,7 @@ impl DissCordApp {
             }
             MenuAction::ToggleMembers => self.members_hidden = !self.members_hidden,
             MenuAction::Logout => self.logout(),
+            MenuAction::OpenDm(name) => self.send(ClientMsg::OpenDm { name }),
             MenuAction::SetSkinTone(tone) => self.skin_tone = tone,
             MenuAction::TrustNewServerCert => {
                 if let Some(index) = self.selected {
