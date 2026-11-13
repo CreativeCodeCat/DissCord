@@ -298,13 +298,15 @@ impl Db {
 
     /// Deletes a message, but only when `author` wrote it. Returns the message's channel, or
     /// `None` when there is no such message by that author.
-    pub fn delete_message(&self, id: i64, author: &str) -> rusqlite::Result<Option<String>> {
+    /// Deletes a message if `requester` wrote it, or always when `any` is true (the server owner).
+    /// Returns the message's channel, or `None` if nothing was deleted.
+    pub fn delete_message(&self, id: i64, requester: &str, any: bool) -> rusqlite::Result<Option<String>> {
         use rusqlite::OptionalExtension;
         let channel: Option<String> = self
             .conn
             .query_row(
-                "SELECT channel FROM messages WHERE id = ?1 AND author = ?2",
-                params![id, author],
+                "SELECT channel FROM messages WHERE id = ?1 AND (?2 OR author = ?3)",
+                params![id, any, requester],
                 |row| row.get(0),
             )
             .optional()?;

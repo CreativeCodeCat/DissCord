@@ -165,7 +165,8 @@ client is in, plus `joined` (with up to 200 messages of history).
 
 **Messages**
 
-- Only the author of a message can edit or delete it.
+- Only the author of a message can edit it. The author and the server owner can
+  delete it.
 - Reactions accept any emoji of up to 16 characters. The picker offers the
   standard emoji. Emoji with skin tones can be set to one of the five tones with
   the row at the top of the picker. The choice is saved between runs.
