@@ -18,6 +18,9 @@ use tokio::sync::broadcast;
 const MAX_TEXT_LEN: usize = 2000;
 const MAX_SERVER_NAME_LEN: usize = 40;
 const DEFAULT_DB_PATH: &str = "disscord.db";
+/// How long a session confirmed by the auth service keeps working on this server while the auth
+/// service cannot be reached.
+const SESSION_CACHE_SECS: u64 = 24 * 60 * 60;
 
 struct State {
     db: Db,
@@ -264,14 +267,16 @@ where
     }
 
     // Handshake: otherwise the first message must be a Connect carrying a session token.
-    let outcome = match serde_json::from_str::<ClientMsg>(&first) {
-        Ok(ClientMsg::Connect { token }) => verify_session(&state, &auth_addr, &token).await,
-        _ => Err("connect with a session token first".to_string()),
-    };
-    let user = match outcome {
-        Ok(name) => name,
-        Err(text) => {
-            send(&mut writer, &ServerMsg::Error { text }).await?;
+    let user = match serde_json::from_str::<ClientMsg>(&first) {
+        Ok(ClientMsg::Connect { token }) => match check_session(&state, &auth_addr, &token).await {
+            Ok(name) => name,
+            Err(text) => {
+                send(&mut writer, &ServerMsg::Error { text }).await?;
+                return Ok(());
+            }
+        },
+        _ => {
+            send(&mut writer, &ServerMsg::Error { text: "connect with a session token first".into() }).await?;
             return Ok(());
         }
     };
@@ -599,32 +604,67 @@ fn pin_ok(state: &SharedState, kind: &str, addr: &str, fingerprint: &str) -> boo
     }
 }
 
+/// Works out who a connecting token belongs to. The auth service is asked first. If it cannot be
+/// reached, a session it confirmed within `SESSION_CACHE_SECS` is still accepted. A session the
+/// auth service rejects is refused at once and forgotten here.
+async fn check_session(state: &SharedState, auth_addr: &str, token: &str) -> Result<String, String> {
+    match verify_session(state, auth_addr, token).await {
+        Ok(name) => {
+            let _ = state.lock().unwrap().db.cache_session(token, &name, now_secs());
+            Ok(name)
+        }
+        Err(VerifyError::Rejected(text)) => {
+            let _ = state.lock().unwrap().db.forget_cached_session(token);
+            Err(text)
+        }
+        Err(VerifyError::Unreachable(text)) => {
+            let cached = state.lock().unwrap().db.cached_session(token).ok().flatten();
+            match cached {
+                Some((name, verified)) if now_secs().saturating_sub(verified) <= SESSION_CACHE_SECS => {
+                    println!("auth service unreachable, accepting {name} from the session cache");
+                    Ok(name)
+                }
+                _ => Err(text),
+            }
+        }
+    }
+}
+
+/// Why a session could not be confirmed by the auth service.
+enum VerifyError {
+    /// The auth service answered that the token is not valid, or its certificate changed.
+    Rejected(String),
+    /// The auth service could not be reached or did not answer properly.
+    Unreachable(String),
+}
+
 /// Asks the auth service who a session token belongs to. Returns the display name.
-async fn verify_session(state: &SharedState, auth_addr: &str, token: &str) -> Result<String, String> {
+async fn verify_session(state: &SharedState, auth_addr: &str, token: &str) -> Result<String, VerifyError> {
+    use VerifyError::{Rejected, Unreachable};
     let (mut stream, fingerprint) = common::tls::connect_async(auth_addr)
         .await
-        .map_err(|e| format!("auth service unavailable: {e}"))?;
+        .map_err(|e| Unreachable(format!("auth service unavailable: {e}")))?;
     if !pin_ok(state, "auth", auth_addr, &fingerprint) {
-        return Err("the auth service's certificate has changed".into());
+        return Err(Rejected("the auth service's certificate has changed".into()));
     }
     let mut request = serde_json::to_string(&AuthRequest::Verify { token: token.to_string() })
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| Unreachable(e.to_string()))?;
     request.push('\n');
     stream
         .write_all(request.as_bytes())
         .await
-        .map_err(|e| format!("auth service unavailable: {e}"))?;
+        .map_err(|e| Unreachable(format!("auth service unavailable: {e}")))?;
 
     let mut lines = BufReader::new(stream).lines();
     let line = lines
         .next_line()
         .await
-        .map_err(|e| format!("auth service unavailable: {e}"))?
-        .ok_or_else(|| "auth service closed the connection".to_string())?;
+        .map_err(|e| Unreachable(format!("auth service unavailable: {e}")))?
+        .ok_or_else(|| Unreachable("auth service closed the connection".to_string()))?;
     match serde_json::from_str::<AuthReply>(&line) {
         Ok(AuthReply::Verified { name }) => Ok(name),
-        Ok(AuthReply::Error { text }) => Err(text),
-        _ => Err("unexpected reply from auth service".into()),
+        Ok(AuthReply::Error { text }) => Err(Rejected(text)),
+        _ => Err(Unreachable("unexpected reply from auth service".into())),
     }
 }
 

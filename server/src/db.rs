@@ -20,6 +20,11 @@ CREATE TABLE IF NOT EXISTS server_info (
 CREATE TABLE IF NOT EXISTS channels (
     name TEXT PRIMARY KEY
 );
+CREATE TABLE IF NOT EXISTS session_cache (
+    token    TEXT PRIMARY KEY,
+    name     TEXT NOT NULL,
+    verified INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS peers (
     addr TEXT PRIMARY KEY
 );
@@ -179,6 +184,36 @@ impl Db {
 
     pub fn remove_peer(&self, addr: &str) -> rusqlite::Result<()> {
         self.conn.execute("DELETE FROM peers WHERE addr = ?1", params![addr])?;
+        Ok(())
+    }
+
+    /// Remembers that the auth service confirmed this token at time `verified`.
+    pub fn cache_session(&self, token: &str, name: &str, verified: u64) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "INSERT INTO session_cache (token, name, verified) VALUES (?1, ?2, ?3)
+             ON CONFLICT(token) DO UPDATE SET name = excluded.name, verified = excluded.verified",
+            params![token, name, verified as i64],
+        )?;
+        Ok(())
+    }
+
+    /// The name and last confirmed time for a token that was verified before, if any.
+    pub fn cached_session(&self, token: &str) -> rusqlite::Result<Option<(String, u64)>> {
+        use rusqlite::OptionalExtension;
+        let row = self
+            .conn
+            .query_row(
+                "SELECT name, verified FROM session_cache WHERE token = ?1",
+                params![token],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as u64)),
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    pub fn forget_cached_session(&self, token: &str) -> rusqlite::Result<()> {
+        self.conn
+            .execute("DELETE FROM session_cache WHERE token = ?1", params![token])?;
         Ok(())
     }
 

@@ -128,8 +128,11 @@ client is in, plus `joined` (with up to 200 messages of history).
   secret key kept in `<auth database>.key` beside the database. Keep that file
   with the database: without it, nobody can log in. Copying only the database
   does not reveal emails.
-- The auth service must be running for anyone to log in or for chat servers to
-  accept connections.
+- The auth service must be running for anyone to log in. While it cannot be
+  reached, a chat server still accepts a session the auth service confirmed
+  within the last 24 hours. Logging out only reaches the servers once the auth
+  service is back, so a logged-out session can still work on a server during an
+  outage. Each server keeps these sessions in its database.
 - With "Keep me logged in on this computer" ticked, the client saves your
   session token (never your password) in its app data folder, and it stays
   logged in after a restart. Without it, you log in again after restarting.
