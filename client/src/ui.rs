@@ -84,7 +84,13 @@ fn auth_banner(ui: &mut Ui) -> bool {
                     .color(TEXT_STRONG),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    close = close_button(ui);
+                    let (rect, resp) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), Sense::click());
+                    let color = if resp.hovered() { TEXT_STRONG } else { TEXT_STRONG.gamma_multiply(0.7) };
+                    let c = rect.center();
+                    let stroke = egui::Stroke::new(1.5, color);
+                    ui.painter().line_segment([c + egui::vec2(-4.0, -4.0), c + egui::vec2(4.0, 4.0)], stroke);
+                    ui.painter().line_segment([c + egui::vec2(-4.0, 4.0), c + egui::vec2(4.0, -4.0)], stroke);
+                    close = resp.clicked();
                 });
             });
         });
