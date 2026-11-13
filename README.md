@@ -129,10 +129,11 @@ client is in, plus `joined` (with up to 200 messages of history).
   with the database: without it, nobody can log in. Copying only the database
   does not reveal emails.
 - The auth service must be running for anyone to log in. While it cannot be
-  reached, a chat server still accepts a session the auth service confirmed
-  within the last 24 hours. Logging out only reaches the servers once the auth
-  service is back, so a logged-out session can still work on a server during an
-  outage. Each server keeps these sessions in its database.
+  reached, the client shows a red warning, and a chat server still accepts a
+  session the auth service confirmed within the last 24 hours. Logging out only
+  reaches the servers once the auth service is back, so a logged-out session can
+  still work on a server during an outage. Each server keeps these sessions in
+  its database.
 - With "Keep me logged in on this computer" ticked, the client saves your
   session token (never your password) in its app data folder, and it stays
   logged in after a restart. Without it, you log in again after restarting.
@@ -147,6 +148,8 @@ client is in, plus `joined` (with up to 200 messages of history).
 - Databases from earlier versions keep their old `accounts` and `users`
   tables, which are no longer used. Accounts registered on the old chat
   servers must register again with the auth service.
-- You can edit and delete your own messages. The server accepts any emoji as a
-  reaction, but the picker only offers emoji with colour images. There are no
-  direct messages yet.
+- Only the author of a message can edit or delete it. Deleting is immediate and
+  has no confirmation step.
+- Reactions accept any emoji up to 16 characters. The picker offers the standard
+  emoji, without skin tone variants.
+- There are no direct messages yet.
