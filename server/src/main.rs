@@ -247,23 +247,13 @@ async fn handle_connection(
         }
     };
 
-    // A name can only be online once at a time.
-    let claimed = {
+    // The same account may be connected more than once (for example from two windows). Each
+    // connection adds one entry to `online`, and the member shows as online while any is open.
+    let (users, server_name, server_description, server_icon) = {
         let mut s = state.lock().unwrap();
-        if s.online.contains(&user) {
-            None
-        } else {
-            s.db.add_member(&user, now_secs())?;
-            s.online.push(user.clone());
-            Some((s.presence(), s.db.server_name()?, s.db.server_description()?, s.db.server_icon()?))
-        }
-    };
-    let Some((users, server_name, server_description, server_icon)) = claimed else {
-        send(&mut writer, &ServerMsg::Error {
-            text: format!("{user} is already logged in somewhere else"),
-        })
-        .await?;
-        return Ok(());
+        s.db.add_member(&user, now_secs())?;
+        s.online.push(user.clone());
+        (s.presence(), s.db.server_name()?, s.db.server_description()?, s.db.server_icon()?)
     };
 
     let mut channel = "general".to_string();
@@ -460,7 +450,7 @@ fn public_info(state: &SharedState) -> ServerMsg {
         name: s.db.server_name().unwrap_or_default(),
         description: s.db.server_description().unwrap_or_default(),
         icon: s.db.server_icon().ok().flatten(),
-        online: s.online.len() as u32,
+        online: s.online.iter().collect::<std::collections::HashSet<_>>().len() as u32,
         public: s.db.is_public().unwrap_or(false),
     }
 }
