@@ -158,8 +158,7 @@ client is in, plus `joined` (with up to 200 messages of history).
 
 **Messages**
 
-- Only the author of a message can edit or delete it. Deleting happens at once,
-  with no confirmation step.
+- Only the author of a message can edit or delete it.
 - Reactions accept any emoji of up to 16 characters. The picker offers the
   standard emoji, without skin tone variants.
 - There are no direct messages yet.

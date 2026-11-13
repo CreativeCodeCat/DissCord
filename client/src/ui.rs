@@ -49,6 +49,7 @@ pub fn root(app: &mut DissCordApp, ui: &mut Ui) {
         login(app, ui);
     }
     add_server_dialog(app, &ctx);
+    delete_confirm_dialog(app, &ctx, &mut actions);
 
     // Menus and buttons queued their choices while drawing; apply them now.
     for action in actions {
@@ -81,11 +82,11 @@ fn auth_banner(ui: &mut Ui) -> bool {
                          Servers still accept your saved login for up to 24 hours.",
                     )
                     .strong()
-                    .color(TEXT_STRONG),
+                    .color(CRUST),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let (rect, resp) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), Sense::click());
-                    let color = if resp.hovered() { TEXT_STRONG } else { TEXT_STRONG.gamma_multiply(0.7) };
+                    let color = if resp.hovered() { CRUST } else { CRUST.gamma_multiply(0.7) };
                     let c = rect.center();
                     let stroke = egui::Stroke::new(1.5, color);
                     ui.painter().line_segment([c + egui::vec2(-4.0, -4.0), c + egui::vec2(4.0, 4.0)], stroke);
@@ -145,10 +146,6 @@ fn window_button(ui: &mut Ui, kind: WindowButton) -> bool {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(46.0, 32.0), Sense::click());
     let hovered = resp.hovered();
     let color = match (kind, hovered) {
-        (WindowButton::Close, true) => {
-            ui.painter().rect_filled(rect, CornerRadius::ZERO, RED);
-            TEXT_STRONG
-        }
         (_, true) => {
             ui.painter().rect_filled(rect, CornerRadius::ZERO, HOVER_BG);
             TEXT_STRONG
@@ -557,6 +554,56 @@ fn login_form(app: &mut DissCordApp, ui: &mut Ui) {
 
     if submit {
         app.log_in();
+    }
+}
+
+/// Asks before a message is deleted. Deleting is queued as an action, so the server only hears
+/// about it once the user confirms.
+fn delete_confirm_dialog(app: &mut DissCordApp, ctx: &egui::Context, actions: &mut Vec<MenuAction>) {
+    let Some(id) = app.pending_delete else {
+        return;
+    };
+    let mut close = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    egui::Window::new("Delete message?")
+        .title_bar(false)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        .default_width(440.0)
+        .frame(Frame::new().fill(SIDEBAR_BG).corner_radius(CornerRadius::same(8)).inner_margin(Margin::same(24)))
+        .show(ctx, |ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                close |= close_button(ui);
+            });
+            ui.vertical_centered(|ui| {
+                ui.label(RichText::new("Delete message?").size(22.0).strong().color(TEXT_STRONG));
+                ui.add_space(8.0);
+                ui.label(
+                    RichText::new("This message will be removed for everyone. It can't be undone.").color(TEXT),
+                );
+            });
+            ui.add_space(24.0);
+            ui.horizontal(|ui| {
+                let cancel = egui::Button::new(RichText::new("Cancel").strong().color(TEXT_STRONG))
+                    .fill(HOVER_BG)
+                    .min_size(egui::vec2(132.0, 40.0));
+                if ui.add(cancel).clicked() {
+                    close = true;
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Dark text on the pink button, so it reads clearly.
+                    let delete = egui::Button::new(RichText::new("Delete").strong().color(CRUST))
+                        .fill(RED)
+                        .min_size(egui::vec2(132.0, 40.0));
+                    if ui.add(delete).clicked() {
+                        actions.push(MenuAction::Delete(id));
+                        close = true;
+                    }
+                });
+            });
+        });
+    if close {
+        app.pending_delete = None;
     }
 }
 
@@ -2105,7 +2152,7 @@ fn message_toolbar(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, row: egui::R
                             ui.separator();
                             ui.add_space(2.0);
                             if menu_item_icon(ui, Icon::Trash, "Delete Message", true) {
-                                actions.push(MenuAction::Delete(m.id));
+                                actions.push(MenuAction::AskDelete(m.id));
                                 picked = true;
                             }
                         }
@@ -2158,7 +2205,7 @@ fn message_text(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut V
                     ui.close();
                 }
                 if ui.button("Delete Message").clicked() {
-                    actions.push(MenuAction::Delete(m.id));
+                    actions.push(MenuAction::AskDelete(m.id));
                     ui.close();
                 }
             }

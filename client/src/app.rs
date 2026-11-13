@@ -87,6 +87,8 @@ pub enum Entry {
 /// runs; the app applies them once the frame is finished.
 pub enum MenuAction {
     StartEdit { id: i64, text: String },
+    /// Ask the user to confirm deleting a message.
+    AskDelete(i64),
     Delete(i64),
     React { id: i64, emoji: String },
     SaveEdit(i64),
@@ -180,6 +182,8 @@ pub struct DissCordApp {
     pub search: String,
     /// The message being edited, by id. Its text is kept in egui's temporary data.
     pub editing: Option<i64>,
+    /// A message waiting for the user to confirm its deletion.
+    pub pending_delete: Option<i64>,
     pub messages: HashMap<String, Vec<Entry>>,
 
     // Inputs
@@ -693,6 +697,7 @@ impl DissCordApp {
                 self.editing = None;
             }
             MenuAction::CancelEdit => self.editing = None,
+            MenuAction::AskDelete(id) => self.pending_delete = Some(id),
             MenuAction::Delete(id) => self.send(ClientMsg::Delete { id }),
             MenuAction::React { id, emoji } => self.send(ClientMsg::React { id, emoji }),
             MenuAction::Mention(name) => {

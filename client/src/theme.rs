@@ -26,6 +26,8 @@ pub const ACCENT: Color32 = Color32::from_rgb(0xCB, 0xA6, 0xF7);
 pub const LINK: Color32 = Color32::from_rgb(0x89, 0xB4, 0xFA);
 pub const GREEN: Color32 = Color32::from_rgb(0xA6, 0xE3, 0xA1);
 pub const RED: Color32 = Color32::from_rgb(0xF3, 0x8B, 0xA8);
+/// Dark text for use on light or coloured buttons.
+pub const CRUST: Color32 = Color32::from_rgb(0x11, 0x11, 0x1B);
 
 /// Colours used for avatars and author names.
 const AVATAR_PALETTE: [Color32; 8] = [
