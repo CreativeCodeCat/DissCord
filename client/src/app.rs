@@ -193,6 +193,8 @@ pub struct DissCordApp {
 
     /// Last notice, shown in the composer footer.
     pub status: String,
+    /// True while the auth service cannot be reached. The top of the window shows a warning.
+    pub auth_down: bool,
 }
 
 impl DissCordApp {
@@ -205,6 +207,7 @@ impl DissCordApp {
         };
         match auth_client::request(&AuthRequest::Verify { token: saved.token.clone() }) {
             Ok(AuthReply::Verified { name }) => {
+                self.auth_down = false;
                 self.user = name;
                 self.session = Some(Session { token: saved.token });
                 self.remember = true;
@@ -220,6 +223,7 @@ impl DissCordApp {
             Err(e) => {
                 // The auth service cannot be reached, so the saved login is used as it is. The chat
                 // server accepts it from its own record of recent logins, or says why it cannot.
+                self.auth_down = true;
                 self.user = saved.name.clone();
                 self.session = Some(Session { token: saved.token.clone() });
                 self.remember = true;
@@ -306,6 +310,7 @@ impl DissCordApp {
 
         match auth_client::request(&request) {
             Ok(AuthReply::Session { token, name }) => {
+                self.auth_down = false;
                 self.user = name.clone();
                 self.session = Some(Session { token });
                 self.login_error = None;
@@ -314,7 +319,10 @@ impl DissCordApp {
             }
             Ok(AuthReply::Error { text }) => self.login_error = Some(text),
             Ok(_) => self.login_error = Some("Unexpected reply from the auth service.".into()),
-            Err(e) => self.login_error = Some(e),
+            Err(e) => {
+                self.auth_down = true;
+                self.login_error = Some(e);
+            }
         }
     }
 

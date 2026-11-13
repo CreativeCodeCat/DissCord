@@ -23,6 +23,9 @@ pub fn root(app: &mut DissCordApp, ui: &mut Ui) {
 
     window_resize_edges(&ctx);
     top_bar(app, ui);
+    if app.auth_down {
+        auth_banner(ui);
+    }
     if app.is_logged_in() {
         if app.show_server_settings && app.is_chat_ready() {
             // The settings page takes over the whole window, like Discord's.
@@ -60,6 +63,22 @@ enum WindowButton {
 
 /// A header bar across the top of the window. Drag it to move the window, double-click it to
 /// maximize or restore, and use the buttons on the right to minimize, maximize or close.
+/// A red strip under the title bar, shown while the auth service cannot be reached.
+fn auth_banner(ui: &mut Ui) {
+    egui::Panel::top("auth_banner")
+        .frame(Frame::new().fill(RED).inner_margin(Margin::symmetric(16, 8)))
+        .show(ui, |ui| {
+            ui.label(
+                RichText::new(
+                    "The auth service cannot be reached. You can't log in or create accounts until it is back. \
+                     Servers still accept your saved login for up to 24 hours.",
+                )
+                .strong()
+                .color(TEXT_STRONG),
+            );
+        });
+}
+
 fn top_bar(app: &DissCordApp, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
