@@ -125,9 +125,10 @@ client is in, plus `joined` (with up to 200 messages of history).
   auth database, so anyone who can read that file can see them.
 - The auth service must be running for anyone to log in or for chat servers to
   accept connections.
-- A session token is kept only in the client's memory, so you log in again
-  after restarting the client.
-- Only one connection per account on each chat server at a time.
+- With "Keep me logged in on this computer" ticked, the client saves your
+  session token (never your password) in its app data folder, and it stays
+  logged in after a restart. Without it, you log in again after restarting.
+  Anyone who can read that file can use your session until it is logged out.
 - Plain TCP, no TLS.
 - Databases from earlier versions keep their old `accounts` and `users`
   tables, which are no longer used. Accounts registered on the old chat
