@@ -3,6 +3,7 @@ mod auth_client;
 mod discover;
 mod net;
 mod theme;
+mod trust;
 mod ui;
 mod util;
 
@@ -37,6 +38,13 @@ fn main() -> eframe::Result {
                 .storage
                 .and_then(|storage| eframe::get_value(storage, SESSION_KEY))
                 .flatten();
+            // Certificates remembered from earlier runs.
+            if let Some(pins) = cc
+                .storage
+                .and_then(|storage| eframe::get_value::<std::collections::BTreeMap<String, String>>(storage, trust::PINS_KEY))
+            {
+                *trust::PINS.lock().unwrap() = pins;
+            }
             let mut app = DissCordApp {
                 servers,
                 selected: None,
@@ -60,6 +68,7 @@ impl eframe::App for DissCordApp {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, SERVERS_KEY, &self.servers);
+        eframe::set_value(storage, trust::PINS_KEY, &*trust::PINS.lock().unwrap());
         eframe::set_value(storage, app::CREATE_BOX_KEY, &self.show_create_box);
         eframe::set_value(storage, SESSION_KEY, &self.stored_session());
     }

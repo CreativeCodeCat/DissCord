@@ -14,6 +14,11 @@ CREATE TABLE IF NOT EXISTS sessions (
     email   TEXT NOT NULL,
     created INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS tls_identity (
+    id   INTEGER PRIMARY KEY CHECK (id = 1),
+    cert TEXT NOT NULL,
+    key  TEXT NOT NULL
+);
 ";
 
 /// A stored account, as needed for logging in.
@@ -86,6 +91,21 @@ impl Db {
                 |row| row.get(0),
             )
             .optional()
+    }
+
+    /// The stored TLS certificate and key (PEM), if one has been made.
+    pub fn tls_identity(&self) -> rusqlite::Result<Option<(String, String)>> {
+        self.conn
+            .query_row("SELECT cert, key FROM tls_identity WHERE id = 1", [], |row| Ok((row.get(0)?, row.get(1)?)))
+            .optional()
+    }
+
+    pub fn store_tls_identity(&self, cert: &str, key: &str) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO tls_identity (id, cert, key) VALUES (1, ?1, ?2)",
+            params![cert, key],
+        )?;
+        Ok(())
     }
 
     pub fn delete_session(&self, token: &str) -> rusqlite::Result<()> {
