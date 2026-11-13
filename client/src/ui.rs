@@ -810,6 +810,15 @@ fn add_server_dialog(app: &mut DissCordApp, ctx: &egui::Context) {
     if !app.show_add_server {
         return;
     }
+    // Dim the window behind the dialog. The backdrop is shown first, so the dialog draws on top.
+    let screen = ctx.content_rect();
+    egui::Area::new(egui::Id::NULL.with("join_server_backdrop"))
+        .order(egui::Order::Middle)
+        .fixed_pos(screen.min)
+        .show(ctx, |ui| {
+            ui.painter().rect_filled(screen, CornerRadius::ZERO, egui::Color32::from_black_alpha(170));
+        });
+
     let mut close = false;
     let mut submit = false;
     let mut find = false;
