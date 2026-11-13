@@ -197,7 +197,8 @@ pub struct DissCordApp {
 
 impl DissCordApp {
     /// Checks a saved login with the auth service and logs in if it is still valid.
-    /// Called once at startup. A network failure keeps the saved login for next time.
+    /// Called once at startup. If the auth service cannot be reached, the saved login is used
+    /// anyway, so the chat server can still accept it.
     pub fn try_auto_login(&mut self, ctx: &egui::Context) {
         let Some(saved) = self.saved_session.take() else {
             return;
@@ -207,13 +208,7 @@ impl DissCordApp {
                 self.user = name;
                 self.session = Some(Session { token: saved.token });
                 self.remember = true;
-                let index = saved
-                    .server
-                    .as_ref()
-                    .and_then(|addr| self.servers.iter().position(|s| &s.addr == addr));
-                if let Some(index) = index {
-                    self.select_server(index, ctx);
-                }
+                self.reopen_server(saved.server.as_deref(), ctx);
             }
             Ok(AuthReply::Error { text }) => {
                 self.login_error = Some(format!("Your saved login has ended: {text}"));
@@ -223,10 +218,23 @@ impl DissCordApp {
                 self.saved_session = Some(saved);
             }
             Err(e) => {
-                // Keep the saved login so the next start can try again.
-                self.login_error = Some(format!("Could not log you in automatically: {e}"));
+                // The auth service cannot be reached, so the saved login is used as it is. The chat
+                // server accepts it from its own record of recent logins, or says why it cannot.
+                self.user = saved.name.clone();
+                self.session = Some(Session { token: saved.token.clone() });
+                self.remember = true;
+                self.status = format!("Auth service unreachable ({e}). Using your saved login.");
+                self.reopen_server(saved.server.as_deref(), ctx);
                 self.saved_session = Some(saved);
             }
+        }
+    }
+
+    /// Opens the server that was open last time, if it is still in the list.
+    fn reopen_server(&mut self, addr: Option<&str>, ctx: &egui::Context) {
+        let index = addr.and_then(|addr| self.servers.iter().position(|s| s.addr == addr));
+        if let Some(index) = index {
+            self.select_server(index, ctx);
         }
     }
 
