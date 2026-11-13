@@ -70,8 +70,13 @@ struct ServerConfig {
 /// With COUNT above 1, one process runs that many servers on consecutive ports, starting at
 /// ADDR's port. Each gets its own database (DB_PATH with its port in the name) and its own
 /// discovery port (the next one up from DISSCORD_DISCOVERY_PORT).
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    // Read .env before the runtime starts any threads.
+    common::env::load();
+    tokio::runtime::Runtime::new()?.block_on(run())
+}
+
+async fn run() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     let addr = args.next().unwrap_or_else(|| DEFAULT_ADDR.to_string());
     let db_path = args.next().unwrap_or_else(|| DEFAULT_DB_PATH.to_string());

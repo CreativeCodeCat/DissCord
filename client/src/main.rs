@@ -11,6 +11,7 @@ use app::{DissCordApp, SavedSession, SERVERS_KEY, SESSION_KEY};
 use eframe::egui;
 
 fn main() -> eframe::Result {
+    common::env::load();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 760.0])
