@@ -7,7 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use common::{
-    AuthReply, AuthRequest, ChatMessage, ClientMsg, ServerMsg, UserStatus, DEFAULT_ADDR, DEFAULT_AUTH_ADDR,
+    AuthReply, AuthRequest, ChatMessage, ClientMsg, DirectMessage, ServerMsg, UserStatus, DEFAULT_ADDR,
+    DEFAULT_AUTH_ADDR,
     DISCOVERY_PORT, MAX_SERVER_DESCRIPTION_LEN, MAX_SERVER_ICON_LEN,
 };
 use db::Db;
@@ -319,6 +320,7 @@ where
         server_public,
     };
     send(&mut writer, &welcome).await?;
+    send(&mut writer, &ServerMsg::DirectMessages { list: direct_message_list(&state, &user)? }).await?;
     let _ = tx.send(ServerMsg::Presence { users });
     let _ = tx.send(ServerMsg::System {
         channel: channel.clone(),
@@ -354,6 +356,33 @@ where
                     ClientMsg::Peers { known } => {
                         let addrs = share_peers(&state, known);
                         send(&mut writer, &ServerMsg::Peers { addrs }).await?;
+                    }
+
+                    ClientMsg::OpenDm { name } => {
+                        let opened = {
+                            let s = state.lock().unwrap();
+                            match s.db.member_by_display_name(&name)? {
+                                None => Err("there is no member with that name".to_string()),
+                                Some(other) if other == user => Err("you cannot message yourself".to_string()),
+                                Some(other) => {
+                                    let joined = s.db.open_direct_message(&user, &other)?;
+                                    let history = s.db.history(&joined)?;
+                                    Ok((joined, history))
+                                }
+                            }
+                        };
+                        match opened {
+                            Ok((joined, history)) => {
+                                channel = joined.clone();
+                                send(&mut writer, &ServerMsg::Joined { channel: joined, history }).await?;
+                                send(&mut writer, &ServerMsg::DirectMessages { list: direct_message_list(&state, &user)? }).await?;
+                            }
+                            Err(text) => send(&mut writer, &ServerMsg::Error { text }).await?,
+                        }
+                    }
+
+                    ClientMsg::ListDirectMessages => {
+                        send(&mut writer, &ServerMsg::DirectMessages { list: direct_message_list(&state, &user)? }).await?;
                     }
 
                     ClientMsg::ListChannels => {
@@ -428,10 +457,24 @@ where
                             send(&mut writer, &ServerMsg::Error { text: "invalid channel name".into() }).await?;
                             continue;
                         }
+                        // Direct messages are joined only by their two members. Other names starting
+                        // with "dm-" are refused, so a normal channel can never take one.
                         let history = {
                             let s = state.lock().unwrap();
-                            s.db.ensure_channel(&requested)?;
-                            s.db.history(&requested)?
+                            if requested.starts_with("dm-") {
+                                if s.db.is_direct_message_member(&requested, &user)? {
+                                    Some(s.db.history(&requested)?)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                s.db.ensure_channel(&requested)?;
+                                Some(s.db.history(&requested)?)
+                            }
+                        };
+                        let Some(history) = history else {
+                            send(&mut writer, &ServerMsg::Error { text: "that direct message is not yours".into() }).await?;
+                            continue;
                         };
                         channel = requested.clone();
                         send(&mut writer, &ServerMsg::Joined { channel: requested, history }).await?;
@@ -465,6 +508,17 @@ where
                     ClientMsg::React { id, emoji } => {
                         if !common::is_reaction(&emoji) {
                             send(&mut writer, &ServerMsg::Error { text: "that reaction is not allowed".into() }).await?;
+                            continue;
+                        }
+                        let allowed = {
+                            let s = state.lock().unwrap();
+                            match s.db.message_channel(id)? {
+                                Some(c) if c.starts_with("dm-") => s.db.is_direct_message_member(&c, &user)?,
+                                _ => true,
+                            }
+                        };
+                        if !allowed {
+                            send(&mut writer, &ServerMsg::Error { text: "you cannot react to that message".into() }).await?;
                             continue;
                         }
                         let result = state.lock().unwrap().db.toggle_reaction(id, &emoji, &user)?;
@@ -530,8 +584,16 @@ where
                         if message.channel == channel {
                             send(&mut writer, &ServerMsg::Message { message }).await?;
                         } else {
-                            // Tell the client there is unread activity, without the content.
-                            send(&mut writer, &ServerMsg::Activity { channel: message.channel }).await?;
+                            // Tell the client there is unread activity, without the content. A
+                            // direct message is announced only to its members.
+                            let allowed = {
+                                let s = state.lock().unwrap();
+                                !message.channel.starts_with("dm-")
+                                    || s.db.is_direct_message_member(&message.channel, &user)?
+                            };
+                            if allowed {
+                                send(&mut writer, &ServerMsg::Activity { channel: message.channel }).await?;
+                            }
                         }
                     }
                     Ok(ServerMsg::System { channel: c, text }) if c == channel => {
@@ -649,6 +711,20 @@ fn pin_ok(state: &SharedState, kind: &str, addr: &str, fingerprint: &str) -> boo
             false
         }
     }
+}
+
+/// The direct messages `user` is part of, each with the other member's display name.
+fn direct_message_list(state: &SharedState, user: &str) -> rusqlite::Result<Vec<DirectMessage>> {
+    let s = state.lock().unwrap();
+    let names = s.db.display_names()?;
+    let conversations = s.db.direct_messages_of(user)?;
+    Ok(conversations
+        .into_iter()
+        .map(|(channel, other)| DirectMessage {
+            name: names.get(&other).cloned().unwrap_or_else(|| other.clone()),
+            channel,
+        })
+        .collect())
 }
 
 /// Works out who a connecting token belongs to. The auth service is asked first. If it cannot be

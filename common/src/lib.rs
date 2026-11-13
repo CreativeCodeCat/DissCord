@@ -144,6 +144,11 @@ pub enum ClientMsg {
     React { id: i64, emoji: String },
     /// Request the list of channels.
     ListChannels,
+    /// Open a direct message with the member whose display name is `name`, creating it the first
+    /// time. Answered with `ServerMsg::Joined` for the conversation.
+    OpenDm { name: String },
+    /// Ask for the direct messages you are part of. Answered with `ServerMsg::DirectMessages`.
+    ListDirectMessages,
     /// End this connection's session on this server, so its token stops working here even if
     /// the auth service cannot be reached. The server then closes the connection.
     Logout,
@@ -156,6 +161,15 @@ pub enum ClientMsg {
     /// Public, no login: exchange lists of servers. `known` are servers the sender knows, and
     /// the sender's own address. Answered with `ServerMsg::Peers`.
     Peers { known: Vec<String> },
+}
+
+/// A direct message conversation, as the account that is part of it sees it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectMessage {
+    /// The channel name to join. It does not show who the conversation is with.
+    pub channel: String,
+    /// The other member's display name.
+    pub name: String,
 }
 
 /// Messages sent from server to client.
@@ -199,6 +213,8 @@ pub enum ServerMsg {
     /// The reactions on a message in `channel` now look like this.
     Reactions { channel: String, id: i64, reactions: Vec<Reaction> },
     Channels { channels: Vec<String> },
+    /// The direct messages this account is part of. `name` is the other member's display name.
+    DirectMessages { list: Vec<DirectMessage> },
     System { channel: String, text: String },
     /// Every member of this server, online or not (sent to everyone on change).
     Presence { users: Vec<UserStatus> },

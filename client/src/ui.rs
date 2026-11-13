@@ -104,7 +104,7 @@ fn top_bar(app: &DissCordApp, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
     let title = match app.selected_name() {
-        Some(name) if app.is_chat_ready() => format!("#{}  ·  {name}", app.channel),
+        Some(name) if app.is_chat_ready() => format!("{}  ·  {name}", app.channel_label()),
         _ => "DissCord".to_string(),
     };
 
@@ -1619,8 +1619,26 @@ fn channel_sidebar(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAct
                     continue;
                 }
                 let unread = app.unread.contains(name);
-                if channel_row(ui, name, selected, unread, actions) && !selected {
+                if channel_row(ui, name, &format!("# {name}"), selected, unread, actions) && !selected {
                     to_join = Some(name.clone());
+                }
+            }
+
+            // Your direct messages, after the channels.
+            if !app.dms.is_empty() {
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("DIRECT MESSAGES").small().strong().color(pal().text_muted));
+                });
+                ui.add_space(4.0);
+                for dm in &app.dms {
+                    let selected = dm.channel == app.channel;
+                    let unread = app.unread.contains(&dm.channel);
+                    let label = format!("@ {}", dm.name);
+                    if channel_row(ui, &dm.channel, &label, selected, unread, actions) && !selected {
+                        to_join = Some(dm.channel.clone());
+                    }
                 }
             }
 
@@ -1662,6 +1680,7 @@ fn channel_sidebar(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAct
 fn channel_row(
     ui: &mut Ui,
     name: &str,
+    label: &str,
     selected: bool,
     unread: bool,
     actions: &mut Vec<MenuAction>,
@@ -1695,7 +1714,7 @@ fn channel_row(
     painter.text(
         rect.left_center() + egui::vec2(10.0, 0.0),
         Align2::LEFT_CENTER,
-        format!("# {name}"),
+        label,
         FontId::proportional(16.0),
         color,
     );
@@ -1924,7 +1943,8 @@ fn channel_menu_items(ui: &mut Ui, name: &str, unread: bool, actions: &mut Vec<M
     if unread && menu_item(ui, "Mark as read", false) {
         actions.push(MenuAction::MarkRead(name.to_string()));
     }
-    if menu_item(ui, "Copy channel name", false) {
+    // Direct messages have no name to copy.
+    if !name.starts_with("dm-") && menu_item(ui, "Copy channel name", false) {
         actions.push(MenuAction::CopyText(format!("#{name}")));
     }
 }
@@ -2036,7 +2056,7 @@ fn member_row(ui: &mut Ui, app: &DissCordApp, name: &str, online: bool, actions:
                 (true, false) => pal().text,
                 (false, _) => pal().text_muted,
             };
-            user_name(ui, name, RichText::new(name).color(color), actions);
+            user_name(ui, name, RichText::new(name).color(color), name != app.user, actions);
             if app.owner.as_deref() == Some(name) {
                 owner_crown(ui);
             }
@@ -2239,6 +2259,7 @@ fn full_message(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut V
                         ui,
                         &m.author,
                         RichText::new(&m.author).strong().color(name_color(&m.author)),
+                        m.author != app.user,
                         actions,
                     );
                     ui.label(RichText::new(stamp_label(m.timestamp)).small().color(pal().text_muted));
@@ -2665,11 +2686,14 @@ fn system_notice(ui: &mut Ui, text: &str) {
 }
 
 /// A user's name. Right-click opens the user menu (mention or copy the name).
-fn user_name(ui: &mut Ui, name: &str, text: RichText, actions: &mut Vec<MenuAction>) {
+fn user_name(ui: &mut Ui, name: &str, text: RichText, can_message: bool, actions: &mut Vec<MenuAction>) {
     let resp = ui.add(egui::Label::new(text).sense(Sense::click()));
     resp.context_menu(|ui| {
         if ui.button("Mention").clicked() {
             actions.push(MenuAction::Mention(name.to_string()));
+        }
+        if can_message && ui.button("Message").clicked() {
+            actions.push(MenuAction::OpenDm(name.to_string()));
         }
         if ui.button("Copy name").clicked() {
             actions.push(MenuAction::CopyText(name.to_string()));
