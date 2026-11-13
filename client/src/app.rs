@@ -20,6 +20,7 @@ use crate::util::now_secs;
 pub const SERVERS_KEY: &str = "disscord_servers";
 /// Key under which the "show channel create box" setting is stored by eframe.
 pub const CREATE_BOX_KEY: &str = "disscord_show_create_box";
+pub const THEME_KEY: &str = "disscord_theme";
 const MIN_PASSWORD_LEN: usize = 8;
 
 /// A server the user added with the "+" button. Saved between runs.
@@ -167,6 +168,7 @@ pub struct DissCordApp {
     pub username_draft: Option<String>,
     pub email_draft: Option<(String, String)>,
     pub create_box_draft: Option<bool>,
+    pub theme_draft: Option<crate::theme::Theme>,
     pub rename_input: String,
     pub description_input: String,
     /// The description the server last sent us.
@@ -228,6 +230,8 @@ pub struct DissCordApp {
     pub channels_collapsed: bool,
     /// The box was opened with "+" and stays open until a channel is created or the box loses focus.
     pub create_box_open: bool,
+    /// Setting: the colour theme. Saved between runs.
+    pub theme: crate::theme::Theme,
 
     /// Last notice, shown in the composer footer.
     pub status: String,
@@ -336,6 +340,7 @@ impl DissCordApp {
             || self.username_draft.is_some()
             || self.email_draft.is_some()
             || self.create_box_draft.is_some()
+            || self.theme_draft.is_some()
     }
 
     /// Drops every change waiting on the Account page.
@@ -344,6 +349,7 @@ impl DissCordApp {
         self.username_draft = None;
         self.email_draft = None;
         self.create_box_draft = None;
+        self.theme_draft = None;
         self.profile_error = None;
         self.email_error = None;
     }
@@ -379,6 +385,9 @@ impl DissCordApp {
         }
         if let Some(show) = self.create_box_draft.take() {
             self.show_create_box = show;
+        }
+        if let Some(theme) = self.theme_draft.take() {
+            self.theme = theme;
         }
     }
 

@@ -75,7 +75,7 @@ enum WindowButton {
 fn auth_banner(ui: &mut Ui) -> bool {
     let mut close = false;
     egui::Panel::top("auth_banner")
-        .frame(Frame::new().fill(RED).inner_margin(Margin::symmetric(16, 8)))
+        .frame(Frame::new().fill(pal().red).inner_margin(Margin::symmetric(16, 8)))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
@@ -84,11 +84,11 @@ fn auth_banner(ui: &mut Ui) -> bool {
                          Servers still accept your saved login for up to 24 hours.",
                     )
                     .strong()
-                    .color(CRUST),
+                    .color(pal().on_color),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let (rect, resp) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), Sense::click());
-                    let color = if resp.hovered() { CRUST } else { CRUST.gamma_multiply(0.7) };
+                    let color = if resp.hovered() { pal().on_color } else { pal().on_color.gamma_multiply(0.7) };
                     let c = rect.center();
                     let stroke = egui::Stroke::new(1.5, color);
                     ui.painter().line_segment([c + egui::vec2(-4.0, -4.0), c + egui::vec2(4.0, 4.0)], stroke);
@@ -110,7 +110,7 @@ fn top_bar(app: &DissCordApp, ui: &mut Ui) {
 
     egui::Panel::top("top_bar")
         .exact_size(32.0)
-        .frame(Frame::new().fill(RAIL_BG))
+        .frame(Frame::new().fill(pal().rail_bg))
         .show(ui, |ui| {
             // Added before the buttons, so the buttons take their own clicks.
             let bar = ui.max_rect();
@@ -125,7 +125,7 @@ fn top_bar(app: &DissCordApp, ui: &mut Ui) {
                 Align2::CENTER_CENTER,
                 title,
                 FontId::proportional(14.0),
-                TEXT,
+                pal().text,
             );
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -149,10 +149,10 @@ fn window_button(ui: &mut Ui, kind: WindowButton) -> bool {
     let hovered = resp.hovered();
     let color = match (kind, hovered) {
         (_, true) => {
-            ui.painter().rect_filled(rect, CornerRadius::ZERO, HOVER_BG);
-            TEXT_STRONG
+            ui.painter().rect_filled(rect, CornerRadius::ZERO, pal().hover_bg);
+            pal().text_strong
         }
-        _ => TEXT,
+        _ => pal().text,
     };
 
     let painter = ui.painter();
@@ -176,7 +176,7 @@ fn window_button(ui: &mut Ui, kind: WindowButton) -> bool {
             let back = egui::Rect::from_center_size(c + egui::vec2(2.0, -2.0), egui::vec2(2.0 * r - 2.0, 2.0 * r - 2.0));
             painter.rect_stroke(back, CornerRadius::ZERO, stroke, egui::StrokeKind::Inside);
             let front = egui::Rect::from_center_size(c + egui::vec2(-1.0, 1.0), egui::vec2(2.0 * r - 2.0, 2.0 * r - 2.0));
-            painter.rect_filled(front, CornerRadius::ZERO, if hovered { HOVER_BG } else { RAIL_BG });
+            painter.rect_filled(front, CornerRadius::ZERO, if hovered { pal().hover_bg } else { pal().rail_bg });
             painter.rect_stroke(front, CornerRadius::ZERO, stroke, egui::StrokeKind::Inside);
         }
         WindowButton::Close => {
@@ -232,7 +232,7 @@ fn window_resize_edges(ctx: &egui::Context) {
 fn server_rail(app: &DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
     egui::Panel::left("rail")
         .exact_size(72.0)
-        .frame(Frame::new().fill(RAIL_BG))
+        .frame(Frame::new().fill(pal().rail_bg))
         .show(ui, |ui| {
             ui.add_space(12.0);
             ui.vertical_centered(|ui| {
@@ -269,7 +269,7 @@ fn server_button(ui: &mut Ui, name: &str, icon: Option<&str>, selected: bool) ->
     let (fill, radius) = if selected || hovered {
         (name_color(name), 16)
     } else {
-        (INPUT_BG, 24)
+        (pal().input_bg, 24)
     };
     paint_server_icon(ui, rect, name, icon, fill, radius, 20.0);
     if selected {
@@ -277,7 +277,7 @@ fn server_button(ui: &mut Ui, name: &str, icon: Option<&str>, selected: bool) ->
             egui::pos2(rect.left() - 14.0, rect.center().y - 20.0),
             egui::vec2(4.0, 40.0),
         );
-        ui.painter().rect_filled(bar, CornerRadius::same(2), TEXT_STRONG);
+        ui.painter().rect_filled(bar, CornerRadius::same(2), pal().text_strong);
     }
     resp.on_hover_text(name)
 }
@@ -315,7 +315,7 @@ fn paint_server_icon(
         Align2::CENTER_CENTER,
         initial,
         FontId::proportional(letter_size),
-        TEXT_STRONG,
+        pal().text_strong,
     );
 }
 
@@ -329,9 +329,9 @@ fn add_server_button(ui: &mut Ui) -> Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(48.0, 48.0), Sense::click());
     let hovered = resp.hovered();
     let (fill, radius, text_color) = if hovered {
-        (GREEN, 16, TEXT_STRONG)
+        (pal().green, 16, pal().text_strong)
     } else {
-        (INPUT_BG, 24, GREEN)
+        (pal().input_bg, 24, pal().green)
     };
     let painter = ui.painter();
     painter.rect_filled(rect, CornerRadius::same(radius), fill);
@@ -349,11 +349,11 @@ fn add_server_button(ui: &mut Ui) -> Response {
 fn server_header(app: &DissCordApp, ui: &mut Ui, title: &str, actions: &mut Vec<MenuAction>) {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 48.0), Sense::click());
     let bg = if resp.is_pointer_button_down_on() {
-        SELECTED_BG
+        pal().selected_bg
     } else if resp.hovered() || egui::Popup::is_id_open(ui.ctx(), resp.id) {
-        HOVER_BG
+        pal().hover_bg
     } else {
-        SIDEBAR_BG
+        pal().sidebar_bg
     };
     let painter = ui.painter();
     painter.rect_filled(rect, CornerRadius::ZERO, bg);
@@ -373,13 +373,13 @@ fn server_header(app: &DissCordApp, ui: &mut Ui, title: &str, actions: &mut Vec<
         Align2::LEFT_CENTER,
         title,
         FontId::proportional(16.0),
-        TEXT_STRONG,
+        pal().text_strong,
     );
     // Chevron on the right, pointing down like Discord's.
     let c = rect.right_center() - egui::vec2(18.0, 0.0);
     painter.add(egui::Shape::convex_polygon(
         vec![c + egui::vec2(-5.0, -2.5), c + egui::vec2(5.0, -2.5), c + egui::vec2(0.0, 2.5)],
-        TEXT,
+        pal().text,
         egui::Stroke::NONE,
     ));
 
@@ -406,10 +406,10 @@ fn menu_item_icon(ui: &mut Ui, icon: Icon, label: &str, danger: bool) -> bool {
 fn menu_row(ui: &mut Ui, icon: Option<Icon>, label: &str, danger: bool) -> bool {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 30.0), Sense::click());
     let (fill, text) = match (resp.hovered(), danger) {
-        (true, true) => (Some(RED), TEXT_STRONG),
-        (true, false) => (Some(ACCENT), TEXT_STRONG),
-        (false, true) => (None, RED),
-        (false, false) => (None, TEXT),
+        (true, true) => (Some(pal().red), pal().text_strong),
+        (true, false) => (Some(pal().accent), pal().text_strong),
+        (false, true) => (None, pal().red),
+        (false, false) => (None, pal().text),
     };
     if let Some(fill) = fill {
         ui.painter().rect_filled(rect, CornerRadius::same(4), fill);
@@ -434,7 +434,7 @@ fn menu_row(ui: &mut Ui, icon: Option<Icon>, label: &str, danger: bool) -> bool 
 fn menu_divider(ui: &mut Ui) {
     ui.add_space(4.0);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().rect_filled(rect, CornerRadius::ZERO, SELECTED_BG);
+    ui.painter().rect_filled(rect, CornerRadius::ZERO, pal().selected_bg);
     ui.add_space(4.0);
 }
 
@@ -465,12 +465,12 @@ fn server_menu_items(ui: &mut Ui, app: &DissCordApp, actions: &mut Vec<MenuActio
 
 fn login(app: &mut DissCordApp, ui: &mut Ui) {
     egui::CentralPanel::default()
-        .frame(Frame::new().fill(APP_BG))
+        .frame(Frame::new().fill(pal().app_bg))
         .show(ui, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space((ui.available_height() * 0.12).max(0.0));
                 Frame::new()
-                    .fill(SIDEBAR_BG)
+                    .fill(pal().sidebar_bg)
                     .corner_radius(CornerRadius::same(8))
                     .inner_margin(Margin::same(24))
                     .show(ui, |ui| {
@@ -484,8 +484,8 @@ fn login(app: &mut DissCordApp, ui: &mut Ui) {
 /// Log in or register. The account works on every server, so no server is asked for here.
 fn login_form(app: &mut DissCordApp, ui: &mut Ui) {
     let heading = if app.register_mode { "Create an account" } else { "Welcome back!" };
-    ui.label(RichText::new(heading).size(24.0).strong().color(TEXT_STRONG));
-    ui.label(RichText::new("One account works on every DissCord server.").color(TEXT_MUTED));
+    ui.label(RichText::new(heading).size(24.0).strong().color(pal().text_strong));
+    ui.label(RichText::new("One account works on every DissCord server.").color(pal().text_muted));
     ui.add_space(16.0);
 
     let mut submit = false;
@@ -521,7 +521,7 @@ fn login_form(app: &mut DissCordApp, ui: &mut Ui) {
     ui.add_space(12.0);
     ui.checkbox(
         &mut app.remember,
-        RichText::new("Keep me logged in on this computer").color(TEXT_MUTED),
+        RichText::new("Keep me logged in on this computer").color(pal().text_muted),
     );
 
     ui.add_space(16.0);
@@ -537,7 +537,7 @@ fn login_form(app: &mut DissCordApp, ui: &mut Ui) {
         } else {
             "Need an account?"
         };
-        ui.label(RichText::new(prompt).color(TEXT_MUTED));
+        ui.label(RichText::new(prompt).color(pal().text_muted));
         let link = if app.register_mode { "Log in" } else { "Register" };
         if ui.link(link).clicked() {
             app.register_mode = !app.register_mode;
@@ -547,7 +547,7 @@ fn login_form(app: &mut DissCordApp, ui: &mut Ui) {
 
     if let Some(err) = app.login_error.clone() {
         ui.add_space(8.0);
-        ui.label(RichText::new(&err).color(RED));
+        ui.label(RichText::new(&err).color(pal().red));
         if is_certificate_change(&err) && primary_button(ui, "Trust the new certificate").clicked() {
             crate::trust::forget(&format!("auth:{}", crate::auth_client::auth_addr()));
             app.login_error = None;
@@ -572,30 +572,30 @@ fn delete_confirm_dialog(app: &mut DissCordApp, ctx: &egui::Context, actions: &m
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .default_width(440.0)
-        .frame(Frame::new().fill(SIDEBAR_BG).corner_radius(CornerRadius::same(8)).inner_margin(Margin::same(24)))
+        .frame(Frame::new().fill(pal().sidebar_bg).corner_radius(CornerRadius::same(8)).inner_margin(Margin::same(24)))
         .show(ctx, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
                 close |= close_button(ui);
             });
             ui.vertical_centered(|ui| {
-                ui.label(RichText::new("Delete message?").size(22.0).strong().color(TEXT_STRONG));
+                ui.label(RichText::new("Delete message?").size(22.0).strong().color(pal().text_strong));
                 ui.add_space(8.0);
                 ui.label(
-                    RichText::new("This message will be removed for everyone. It can't be undone.").color(TEXT),
+                    RichText::new("This message will be removed for everyone. It can't be undone.").color(pal().text),
                 );
             });
             ui.add_space(24.0);
             ui.horizontal(|ui| {
-                let cancel = egui::Button::new(RichText::new("Cancel").strong().color(TEXT_STRONG))
-                    .fill(HOVER_BG)
+                let cancel = egui::Button::new(RichText::new("Cancel").strong().color(pal().text_strong))
+                    .fill(pal().hover_bg)
                     .min_size(egui::vec2(132.0, 40.0));
                 if ui.add(cancel).clicked() {
                     close = true;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Dark text on the pink button, so it reads clearly.
-                    let delete = egui::Button::new(RichText::new("Delete").strong().color(CRUST))
-                        .fill(RED)
+                    let delete = egui::Button::new(RichText::new("Delete").strong().color(pal().on_color))
+                        .fill(pal().red)
                         .min_size(egui::vec2(132.0, 40.0));
                     if ui.add(delete).clicked() {
                         actions.push(MenuAction::Delete(id));
@@ -617,21 +617,21 @@ fn is_certificate_change(err: &str) -> bool {
 /// Shown when logged in but no server is open: add one, wait for a join, or retry.
 fn server_status(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
     egui::CentralPanel::default()
-        .frame(Frame::new().fill(APP_BG))
+        .frame(Frame::new().fill(pal().app_bg))
         .show(ui, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space((ui.available_height() * 0.12).max(0.0));
                 Frame::new()
-                    .fill(SIDEBAR_BG)
+                    .fill(pal().sidebar_bg)
                     .corner_radius(CornerRadius::same(8))
                     .inner_margin(Margin::same(24))
                     .show(ui, |ui| {
                         ui.set_width(420.0);
                         if app.servers.is_empty() {
-                            ui.label(RichText::new("Add a server").size(24.0).strong().color(TEXT_STRONG));
+                            ui.label(RichText::new("Add a server").size(24.0).strong().color(pal().text_strong));
                             ui.label(
                                 RichText::new("Enter the address of a DissCord server to start chatting.")
-                                    .color(TEXT_MUTED),
+                                    .color(pal().text_muted),
                             );
                             ui.add_space(16.0);
                             if primary_button(ui, "Add a server").clicked() {
@@ -640,14 +640,14 @@ fn server_status(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuActio
                         } else if app.conn.is_some() {
                             let name = app.selected_name().unwrap_or("server").to_string();
                             ui.label(
-                                RichText::new(format!("Joining {name}...")).size(24.0).strong().color(TEXT_STRONG),
+                                RichText::new(format!("Joining {name}...")).size(24.0).strong().color(pal().text_strong),
                             );
-                            ui.label(RichText::new("Checking your account with the server.").color(TEXT_MUTED));
+                            ui.label(RichText::new("Checking your account with the server.").color(pal().text_muted));
                         } else if let Some(err) = app.server_error.clone() {
                             ui.label(
-                                RichText::new("Couldn't join the server").size(24.0).strong().color(TEXT_STRONG),
+                                RichText::new("Couldn't join the server").size(24.0).strong().color(pal().text_strong),
                             );
-                            ui.label(RichText::new(&err).color(RED));
+                            ui.label(RichText::new(&err).color(pal().red));
                             ui.add_space(16.0);
                             if is_certificate_change(&err) {
                                 if primary_button(ui, "Trust the new certificate").clicked() {
@@ -657,16 +657,16 @@ fn server_status(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuActio
                                 actions.push(MenuAction::RetryServer);
                             }
                         } else {
-                            ui.label(RichText::new("Pick a server").size(24.0).strong().color(TEXT_STRONG));
+                            ui.label(RichText::new("Pick a server").size(24.0).strong().color(pal().text_strong));
                             ui.label(
                                 RichText::new("Choose one from the icons on the left, or add a new one with +.")
-                                    .color(TEXT_MUTED),
+                                    .color(pal().text_muted),
                             );
                         }
 
                         ui.add_space(16.0);
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new(format!("Signed in as {}", app.user)).small().color(TEXT_MUTED));
+                            ui.label(RichText::new(format!("Signed in as {}", app.user)).small().color(pal().text_muted));
                             if ui.link("Log out").clicked() {
                                 actions.push(MenuAction::Logout);
                             }
@@ -678,8 +678,8 @@ fn server_status(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuActio
 
 /// A full-width accent button.
 fn primary_button(ui: &mut Ui, label: &str) -> Response {
-    let button = egui::Button::new(RichText::new(label).strong().color(TEXT_STRONG))
-        .fill(ACCENT)
+    let button = egui::Button::new(RichText::new(label).strong().color(pal().text_strong))
+        .fill(pal().accent)
         .min_size(egui::vec2(ui.available_width(), 40.0));
     ui.add(button)
 }
@@ -689,9 +689,9 @@ fn primary_button(ui: &mut Ui, label: &str) -> Response {
 fn discover_button(ui: &mut Ui) -> Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(48.0, 48.0), Sense::click());
     let (fill, radius, color) = if resp.hovered() {
-        (ACCENT, 16, TEXT_STRONG)
+        (pal().accent, 16, pal().text_strong)
     } else {
-        (INPUT_BG, 24, GREEN)
+        (pal().input_bg, 24, pal().green)
     };
     ui.painter().rect_filled(rect, CornerRadius::same(radius), fill);
     paint_icon(ui.painter(), rect.center(), Icon::Explore, color);
@@ -708,31 +708,31 @@ fn discover_page(app: &mut DissCordApp, ui: &mut Ui) {
 
     egui::Panel::left("discover_nav")
         .exact_size(232.0)
-        .frame(Frame::new().fill(SIDEBAR_BG).inner_margin(Margin::symmetric(12, 24)))
+        .frame(Frame::new().fill(pal().sidebar_bg).inner_margin(Margin::symmetric(12, 24)))
         .show(ui, |ui| {
-            ui.label(RichText::new("DISCOVER").small().strong().color(TEXT_MUTED));
+            ui.label(RichText::new("DISCOVER").small().strong().color(pal().text_muted));
             ui.add_space(8.0);
             nav_selected(ui, "Find servers");
         });
 
     egui::CentralPanel::default()
-        .frame(Frame::new().fill(APP_BG).inner_margin(Margin::symmetric(40, 24)))
+        .frame(Frame::new().fill(pal().app_bg).inner_margin(Margin::symmetric(40, 24)))
         .show(ui, |ui| {
             close |= close_with_hint(ui);
 
-            ui.label(RichText::new("Find servers").size(20.0).strong().color(TEXT_STRONG));
+            ui.label(RichText::new("Find servers").size(20.0).strong().color(pal().text_strong));
             ui.add_space(4.0);
             ui.label(
                 RichText::new("Servers found through the servers you know. Pick one to add it.")
-                    .color(TEXT),
+                    .color(pal().text),
             );
             ui.add_space(20.0);
 
             if let Some(err) = &app.discover_error {
-                ui.label(RichText::new(err).color(RED));
+                ui.label(RichText::new(err).color(pal().red));
             }
             if app.discover_error.is_none() && app.discovered.is_empty() {
-                ui.label(RichText::new("Searching...").color(TEXT_MUTED));
+                ui.label(RichText::new("Searching...").color(pal().text_muted));
             }
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
@@ -776,10 +776,10 @@ fn close_with_hint(ui: &mut Ui) -> bool {
     let resp = ui.interact(button, ui.scope_id().with("page_close"), Sense::click());
     let painter = ui.painter();
     let color = if resp.hovered() {
-        painter.circle_filled(button.center(), 18.0, HOVER_BG);
-        TEXT_STRONG
+        painter.circle_filled(button.center(), 18.0, pal().hover_bg);
+        pal().text_strong
     } else {
-        TEXT_MUTED
+        pal().text_muted
     };
     let c = button.center();
     let r = 8.0;
@@ -791,7 +791,7 @@ fn close_with_hint(ui: &mut Ui) -> bool {
         Align2::CENTER_CENTER,
         "ESC",
         FontId::proportional(11.0),
-        TEXT_MUTED,
+        pal().text_muted,
     );
     resp.clicked()
 }
@@ -810,7 +810,7 @@ enum RowAction {
 fn discovered_row(ui: &mut Ui, found: &FoundServer, saved: bool, expanded: bool) -> RowAction {
     let mut add_rect: Option<egui::Rect> = None;
     let frame = Frame::new()
-        .fill(RAIL_BG)
+        .fill(pal().rail_bg)
         .corner_radius(CornerRadius::same(8))
         .inner_margin(Margin::symmetric(12, 10))
         .show(ui, |ui| {
@@ -832,7 +832,7 @@ fn discovered_row(ui: &mut Ui, found: &FoundServer, saved: bool, expanded: bool)
                     ui.set_width(ui.available_width() - 96.0);
                     ui.horizontal(|ui| {
                         ui.add(
-                            egui::Label::new(RichText::new(&found.name).strong().color(TEXT_STRONG)).truncate(),
+                            egui::Label::new(RichText::new(&found.name).strong().color(pal().text_strong)).truncate(),
                         );
                         if found.public {
                             ui.add(
@@ -843,20 +843,20 @@ fn discovered_row(ui: &mut Ui, found: &FoundServer, saved: bool, expanded: bool)
                         }
                     });
                     if !found.description.is_empty() {
-                        let label = egui::Label::new(RichText::new(&found.description).small().color(TEXT));
+                        let label = egui::Label::new(RichText::new(&found.description).small().color(pal().text));
                         ui.add(if expanded { label.wrap() } else { label.truncate() });
                     }
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(&found.addr).small().color(TEXT_MUTED));
-                        ui.label(RichText::new("·").small().color(TEXT_MUTED));
-                        ui.label(RichText::new(format!("{} online", found.online)).small().color(GREEN));
+                        ui.label(RichText::new(&found.addr).small().color(pal().text_muted));
+                        ui.label(RichText::new("·").small().color(pal().text_muted));
+                        ui.label(RichText::new(format!("{} online", found.online)).small().color(pal().green));
                     });
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if saved {
-                        ui.label(RichText::new("Added").color(TEXT_MUTED));
+                        ui.label(RichText::new("Added").color(pal().text_muted));
                     } else {
-                        let button = ui.add(egui::Button::new("Add").fill(ACCENT).min_size(egui::vec2(72.0, 32.0)));
+                        let button = ui.add(egui::Button::new("Add").fill(pal().accent).min_size(egui::vec2(72.0, 32.0)));
                         add_rect = Some(button.rect);
                     }
                 });
@@ -906,21 +906,21 @@ fn add_server_dialog(app: &mut DissCordApp, ctx: &egui::Context) {
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .default_width(440.0)
-        .frame(Frame::new().fill(SIDEBAR_BG).corner_radius(CornerRadius::same(8)).inner_margin(Margin::same(24)))
+        .frame(Frame::new().fill(pal().sidebar_bg).corner_radius(CornerRadius::same(8)).inner_margin(Margin::same(24)))
         .show(ctx, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
                 close |= close_button(ui);
             });
             ui.vertical_centered(|ui| {
-                ui.label(RichText::new("Join a Server").size(22.0).strong().color(TEXT_STRONG));
+                ui.label(RichText::new("Join a Server").size(22.0).strong().color(pal().text_strong));
                 ui.add_space(4.0);
-                ui.label(RichText::new("Enter an address below to join an existing server").color(TEXT));
+                ui.label(RichText::new("Enter an address below to join an existing server").color(pal().text));
             });
             ui.add_space(20.0);
 
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Server address").strong().color(TEXT_STRONG));
-                ui.label(RichText::new("*").strong().color(RED));
+                ui.label(RichText::new("Server address").strong().color(pal().text_strong));
+                ui.label(RichText::new("*").strong().color(pal().red));
             });
             ui.add_space(4.0);
             let resp = ui.add(
@@ -931,41 +931,41 @@ fn add_server_dialog(app: &mut DissCordApp, ctx: &egui::Context) {
             );
             submit |= enter_pressed(ui, &resp);
             ui.add_space(8.0);
-            ui.label(RichText::new("Addresses should look like").small().color(TEXT_MUTED));
+            ui.label(RichText::new("Addresses should look like").small().color(pal().text_muted));
             ui.add_space(4.0);
             ui.horizontal_wrapped(|ui| {
                 for example in ["chat.example.com", "myserver.example.net"] {
                     Frame::new()
-                        .fill(HOVER_BG)
+                        .fill(pal().hover_bg)
                         .corner_radius(CornerRadius::same(4))
                         .inner_margin(Margin::symmetric(8, 4))
                         .show(ui, |ui| {
-                            ui.label(RichText::new(example).small().color(TEXT));
+                            ui.label(RichText::new(example).small().color(pal().text));
                         });
                 }
             });
 
             if let Some(err) = &app.add_error {
                 ui.add_space(8.0);
-                ui.label(RichText::new(err).color(RED));
+                ui.label(RichText::new(err).color(pal().red));
             }
 
             ui.add_space(20.0);
             let frame = Frame::new()
-                .fill(RAIL_BG)
+                .fill(pal().rail_bg)
                 .corner_radius(CornerRadius::same(8))
                 .inner_margin(Margin::symmetric(12, 10));
             let card = frame.show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
-                        ui.label(RichText::new("Don't have an address?").strong().color(TEXT_STRONG));
+                        ui.label(RichText::new("Don't have an address?").strong().color(pal().text_strong));
                         ui.label(
-                            RichText::new("Find servers on your network and the internet").small().color(TEXT),
+                            RichText::new("Find servers on your network and the internet").small().color(pal().text),
                         );
                     });
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(RichText::new("›").size(20.0).color(TEXT_MUTED));
+                        ui.label(RichText::new("›").size(20.0).color(pal().text_muted));
                     });
                 });
             });
@@ -979,8 +979,8 @@ fn add_server_dialog(app: &mut DissCordApp, ctx: &egui::Context) {
                     close = true;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let button = egui::Button::new(RichText::new("Join Server").strong().color(TEXT_STRONG))
-                        .fill(ACCENT)
+                    let button = egui::Button::new(RichText::new("Join Server").strong().color(pal().text_strong))
+                        .fill(pal().accent)
                         .min_size(egui::vec2(132.0, 40.0));
                     if ui.add(button).clicked() {
                         submit = true;
@@ -1009,15 +1009,15 @@ fn user_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
 
     egui::Panel::left("user_settings_nav")
         .exact_size(232.0)
-        .frame(Frame::new().fill(SIDEBAR_BG).inner_margin(Margin::symmetric(12, 24)))
+        .frame(Frame::new().fill(pal().sidebar_bg).inner_margin(Margin::symmetric(12, 24)))
         .show(ui, |ui| {
-            ui.label(RichText::new("USER SETTINGS").small().strong().color(TEXT_MUTED));
+            ui.label(RichText::new("USER SETTINGS").small().strong().color(pal().text_muted));
             ui.add_space(8.0);
             nav_selected(ui, "Account");
         });
 
     egui::CentralPanel::default()
-        .frame(Frame::new().fill(APP_BG).inner_margin(Margin::symmetric(40, 24)))
+        .frame(Frame::new().fill(pal().app_bg).inner_margin(Margin::symmetric(40, 24)))
         .show(ui, |ui| {
             // The close button and its ESC hint sit at the far right, the hint centred under the X.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
@@ -1025,10 +1025,10 @@ fn user_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(36.0, 14.0), Sense::hover());
-                ui.painter().text(rect.center(), Align2::CENTER_CENTER, "ESC", FontId::proportional(11.0), TEXT_MUTED);
+                ui.painter().text(rect.center(), Align2::CENTER_CENTER, "ESC", FontId::proportional(11.0), pal().text_muted);
             });
 
-            ui.label(RichText::new("Account").size(22.0).strong().color(TEXT_STRONG));
+            ui.label(RichText::new("Account").size(22.0).strong().color(pal().text_strong));
             ui.add_space(20.0);
 
             // Account identity, like Discord's Account Info section.
@@ -1036,8 +1036,8 @@ fn user_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
                 avatar(ui, &app.user, 72.0, None);
                 ui.add_space(12.0);
                 ui.vertical(|ui| {
-                    ui.label(RichText::new(&app.user).size(20.0).strong().color(TEXT_STRONG));
-                    ui.label(RichText::new("Signed in on this computer").small().color(GREEN));
+                    ui.label(RichText::new(&app.user).size(20.0).strong().color(pal().text_strong));
+                    ui.label(RichText::new("Signed in on this computer").small().color(pal().green));
                 });
             });
             ui.add_space(20.0);
@@ -1052,7 +1052,7 @@ fn user_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
                     app.profile_error = None;
                 }
                 let shown = app.name_draft.clone().unwrap_or_else(|| app.user.clone());
-                ui.label(RichText::new(shown).color(if app.name_draft.is_some() { TEXT_STRONG } else { TEXT }));
+                ui.label(RichText::new(shown).color(if app.name_draft.is_some() { pal().text_strong } else { pal().text }));
             });
             account_row(ui, "Username", |ui| {
                 if !app.username_editing && ui.add(egui::Button::new("Edit").min_size(egui::vec2(80.0, 30.0))).clicked() {
@@ -1068,7 +1068,7 @@ fn user_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
                     .clone()
                     .or_else(|| app.account_username.clone())
                     .unwrap_or_else(|| "not loaded".into());
-                ui.label(RichText::new(format!("@{shown}")).color(TEXT));
+                ui.label(RichText::new(format!("@{shown}")).color(pal().text));
             });
             account_row(ui, "Email", |ui| {
                 if !app.email_editing && ui.add(egui::Button::new("Edit").min_size(egui::vec2(80.0, 30.0))).clicked() {
@@ -1079,16 +1079,16 @@ fn user_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
                 }
                 match (&app.email_draft, &app.account_email, &app.account_email_error) {
                     (Some((email, _)), _, _) => {
-                        ui.label(RichText::new(email).color(TEXT_STRONG));
+                        ui.label(RichText::new(email).color(pal().text_strong));
                     }
                     (None, Some(email), _) => {
-                        ui.label(RichText::new(email).color(TEXT));
+                        ui.label(RichText::new(email).color(pal().text));
                     }
                     (None, None, Some(err)) => {
-                        ui.label(RichText::new("Unavailable").color(TEXT_MUTED)).on_hover_text(err);
+                        ui.label(RichText::new("Unavailable").color(pal().text_muted)).on_hover_text(err);
                     }
                     (None, None, None) => {
-                        ui.label(RichText::new("Not on record yet. Set it with Edit.").color(TEXT_MUTED));
+                        ui.label(RichText::new("Not on record yet. Set it with Edit.").color(pal().text_muted));
                     }
                 }
             });
@@ -1103,6 +1103,17 @@ fn user_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
                     app.create_box_draft = (show != app.show_create_box).then_some(show);
                 }
             });
+            account_row(ui, "Theme", |ui| {
+                let mut theme = app.theme_draft.unwrap_or(app.theme);
+                egui::ComboBox::from_id_salt("theme_choice")
+                    .selected_text(theme.name())
+                    .show_ui(ui, |ui| {
+                        for choice in crate::theme::Theme::ALL {
+                            ui.selectable_value(&mut theme, choice, choice.name());
+                        }
+                    });
+                app.theme_draft = (theme != app.theme).then_some(theme);
+            });
             ui.add_space(16.0);
             ui.separator();
             ui.add_space(16.0);
@@ -1114,8 +1125,8 @@ fn user_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
                 "Sign out of DissCord on this computer.",
                 |ui| {
                     // Dark text on the pink button, so it reads clearly.
-                    let button = egui::Button::new(RichText::new("Log Out").strong().color(CRUST))
-                        .fill(RED)
+                    let button = egui::Button::new(RichText::new("Log Out").strong().color(pal().on_color))
+                        .fill(pal().red)
                         .min_size(egui::vec2(120.0, 36.0));
                     if ui.add(button).clicked() {
                         log_out = true;
@@ -1147,21 +1158,21 @@ fn account_save_bar(app: &mut DissCordApp, ctx: &egui::Context) {
         .anchor(Align2::CENTER_BOTTOM, egui::vec2(116.0, -24.0))
         .show(ctx, |ui| {
             Frame::new()
-                .fill(RAIL_BG)
+                .fill(pal().rail_bg)
                 .corner_radius(CornerRadius::same(8))
                 .inner_margin(Margin::symmetric(16, 12))
                 .show(ui, |ui| {
                     ui.set_max_width(640.0);
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
-                            ui.label(RichText::new("Careful – you have unsaved changes!").strong().color(TEXT_STRONG));
+                            ui.label(RichText::new("Careful – you have unsaved changes!").strong().color(pal().text_strong));
                             if let Some(err) = app.profile_error.as_ref().or(app.email_error.as_ref()) {
-                                ui.label(RichText::new(err).small().color(RED));
+                                ui.label(RichText::new(err).small().color(pal().red));
                             }
                         });
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let button = egui::Button::new(RichText::new("Save Changes").strong().color(TEXT_STRONG))
-                                .fill(GREEN)
+                            let button = egui::Button::new(RichText::new("Save Changes").strong().color(pal().text_strong))
+                                .fill(pal().green)
                                 .min_size(egui::vec2(0.0, 32.0));
                             save |= ui.add(button).clicked();
                             if ui.link("Reset").clicked() {
@@ -1201,13 +1212,13 @@ fn account_edit_dialog(app: &mut DissCordApp, ctx: &egui::Context) {
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
         .default_width(440.0)
-        .frame(Frame::new().fill(SIDEBAR_BG).corner_radius(CornerRadius::same(8)).inner_margin(Margin::same(24)))
+        .frame(Frame::new().fill(pal().sidebar_bg).corner_radius(CornerRadius::same(8)).inner_margin(Margin::same(24)))
         .show(ctx, |ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
                 close |= close_button(ui);
             });
             ui.vertical_centered(|ui| {
-                ui.label(RichText::new(title).size(22.0).strong().color(TEXT_STRONG));
+                ui.label(RichText::new(title).size(22.0).strong().color(pal().text_strong));
             });
             ui.add_space(16.0);
             match field {
@@ -1252,7 +1263,7 @@ fn profile_form(ui: &mut Ui, app: &mut DissCordApp, field: ProfileField) {
     }
     if let Some(err) = &app.profile_error {
         ui.add_space(6.0);
-        ui.label(RichText::new(err).color(RED));
+        ui.label(RichText::new(err).color(pal().red));
     }
     ui.add_space(8.0);
     let (cancel, save) = form_buttons(ui);
@@ -1301,7 +1312,7 @@ fn email_form(ui: &mut Ui, app: &mut DissCordApp) {
     );
     if let Some(err) = &app.email_error {
         ui.add_space(6.0);
-        ui.label(RichText::new(err).color(RED));
+        ui.label(RichText::new(err).color(pal().red));
     }
     ui.add_space(12.0);
     let (cancel, save) = form_buttons(ui);
@@ -1321,14 +1332,14 @@ fn form_buttons(ui: &mut Ui) -> (bool, bool) {
     let mut cancel = false;
     let mut save = false;
     ui.horizontal(|ui| {
-        let cancel_button = egui::Button::new(RichText::new("Cancel").strong().color(TEXT_STRONG))
-            .fill(HOVER_BG)
+        let cancel_button = egui::Button::new(RichText::new("Cancel").strong().color(pal().text_strong))
+            .fill(pal().hover_bg)
             .min_size(egui::vec2(132.0, 40.0));
         cancel = ui.add(cancel_button).clicked();
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Dark text on the mauve button, so it reads clearly.
-            let save_button = egui::Button::new(RichText::new("Save").strong().color(CRUST))
-                .fill(ACCENT)
+            let save_button = egui::Button::new(RichText::new("Save").strong().color(pal().on_color))
+                .fill(pal().accent)
                 .min_size(egui::vec2(132.0, 40.0));
             save = ui.add(save_button).clicked();
         });
@@ -1338,14 +1349,14 @@ fn form_buttons(ui: &mut Ui) -> (bool, bool) {
 
 /// A section heading on the account page.
 fn account_heading(ui: &mut Ui, title: &str) {
-    ui.label(RichText::new(title).size(18.0).strong().color(TEXT_STRONG));
+    ui.label(RichText::new(title).size(18.0).strong().color(pal().text_strong));
     ui.add_space(12.0);
 }
 
 /// One setting: its name on the left, and whatever `right` draws on the right.
 fn account_row(ui: &mut Ui, label: &str, right: impl FnOnce(&mut Ui)) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new(label).color(TEXT_STRONG));
+        ui.label(RichText::new(label).color(pal().text_strong));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), right);
     });
     ui.add_space(8.0);
@@ -1355,8 +1366,8 @@ fn account_row(ui: &mut Ui, label: &str, right: impl FnOnce(&mut Ui)) {
 fn account_row_text(ui: &mut Ui, label: &str, description: &str, right: impl FnOnce(&mut Ui)) {
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
-            ui.label(RichText::new(label).color(TEXT_STRONG));
-            ui.label(RichText::new(description).small().color(TEXT_MUTED));
+            ui.label(RichText::new(label).color(pal().text_strong));
+            ui.label(RichText::new(description).small().color(pal().text_muted));
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), right);
     });
@@ -1375,16 +1386,16 @@ fn server_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
 
     egui::Panel::left("settings_nav")
         .exact_size(232.0)
-        .frame(Frame::new().fill(SIDEBAR_BG).inner_margin(Margin::symmetric(12, 24)))
+        .frame(Frame::new().fill(pal().sidebar_bg).inner_margin(Margin::symmetric(12, 24)))
         .show(ui, |ui| {
-            ui.label(RichText::new(server_name.to_uppercase()).small().strong().color(TEXT_MUTED));
+            ui.label(RichText::new(server_name.to_uppercase()).small().strong().color(pal().text_muted));
             ui.add_space(8.0);
             // Only the profile page exists so far.
             nav_selected(ui, "Server Profile");
         });
 
     egui::CentralPanel::default()
-        .frame(Frame::new().fill(APP_BG).inner_margin(Margin::symmetric(40, 24)))
+        .frame(Frame::new().fill(pal().app_bg).inner_margin(Margin::symmetric(40, 24)))
         .show(ui, |ui| {
             // The close button and its ESC hint sit at the far right, the hint centred under the X.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
@@ -1397,14 +1408,14 @@ fn server_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
                     Align2::CENTER_CENTER,
                     "ESC",
                     FontId::proportional(11.0),
-                    TEXT_MUTED,
+                    pal().text_muted,
                 );
             });
 
-            ui.label(RichText::new("Server Profile").size(20.0).strong().color(TEXT_STRONG));
+            ui.label(RichText::new("Server Profile").size(20.0).strong().color(pal().text_strong));
             ui.add_space(4.0);
             ui.label(
-                RichText::new("Customise how your server appears to its members.").color(TEXT),
+                RichText::new("Customise how your server appears to its members.").color(pal().text),
             );
             ui.add_space(24.0);
 
@@ -1430,9 +1441,9 @@ fn server_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
                 app.remove_server_icon();
             }
             if let Some(err) = &app.icon_error {
-                ui.label(RichText::new(err).small().color(RED));
+                ui.label(RichText::new(err).small().color(pal().red));
             }
-            ui.label(RichText::new("PNG or JPG. It is shrunk to 128x128.").small().color(TEXT_MUTED));
+            ui.label(RichText::new("PNG or JPG. It is shrunk to 128x128.").small().color(pal().text_muted));
         });
     });
     ui.add_space(20.0);
@@ -1448,7 +1459,7 @@ fn server_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
             ui.add_space(20.0);
             field_label(ui, "DESCRIPTION");
             ui.label(
-                RichText::new("Tell people what this server is about.").small().color(TEXT_MUTED),
+                RichText::new("Tell people what this server is about.").small().color(pal().text_muted),
             );
             ui.add_space(4.0);
             ui.add(
@@ -1468,7 +1479,7 @@ fn server_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
             .anchor(Align2::CENTER_BOTTOM, egui::vec2(116.0, -24.0))
             .show(ui.ctx(), |ui| {
                 Frame::new()
-                    .fill(RAIL_BG)
+                    .fill(pal().rail_bg)
                     .corner_radius(CornerRadius::same(8))
                     .inner_margin(Margin::symmetric(16, 12))
                     .show(ui, |ui| {
@@ -1477,13 +1488,13 @@ fn server_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
                             ui.label(
                                 RichText::new("Careful – you have unsaved changes!")
                                     .strong()
-                                    .color(TEXT_STRONG),
+                                    .color(pal().text_strong),
                             );
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 let button = egui::Button::new(
-                                    RichText::new("Save Changes").strong().color(TEXT_STRONG),
+                                    RichText::new("Save Changes").strong().color(pal().text_strong),
                                 )
-                                .fill(GREEN)
+                                .fill(pal().green)
                                 .min_size(egui::vec2(0.0, 32.0));
                                 save |= ui.add(button).clicked();
                                 if ui.link("Reset").clicked() {
@@ -1507,13 +1518,13 @@ fn server_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
 /// A selected row in the settings navigation.
 fn nav_selected(ui: &mut Ui, label: &str) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), Sense::hover());
-    ui.painter().rect_filled(rect, CornerRadius::same(4), SELECTED_BG);
+    ui.painter().rect_filled(rect, CornerRadius::same(4), pal().selected_bg);
     ui.painter().text(
         rect.left_center() + egui::vec2(10.0, 0.0),
         Align2::LEFT_CENTER,
         label,
         FontId::proportional(15.0),
-        TEXT_STRONG,
+        pal().text_strong,
     );
 }
 
@@ -1521,10 +1532,10 @@ fn nav_selected(ui: &mut Ui, label: &str) {
 fn close_button(ui: &mut Ui) -> bool {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(36.0, 36.0), Sense::click());
     let color = if resp.hovered() {
-        ui.painter().circle_filled(rect.center(), 18.0, HOVER_BG);
-        TEXT_STRONG
+        ui.painter().circle_filled(rect.center(), 18.0, pal().hover_bg);
+        pal().text_strong
     } else {
-        TEXT_MUTED
+        pal().text_muted
     };
     let c = rect.center();
     let r = 8.0;
@@ -1541,12 +1552,12 @@ fn chat(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
         .min_size(250.0)
         .max_size(420.0)
         .resizable(true)
-        .frame(Frame::new().fill(SIDEBAR_BG))
+        .frame(Frame::new().fill(pal().sidebar_bg))
         .show(ui, |ui| channel_sidebar(app, ui, actions));
 
     egui::Panel::top("header")
         .exact_size(48.0)
-        .frame(Frame::new().fill(APP_BG))
+        .frame(Frame::new().fill(pal().app_bg))
         .show(ui, |ui| header(app, ui, actions));
 
     if !app.members_hidden {
@@ -1555,25 +1566,25 @@ fn chat(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
             .min_size(250.0)
             .max_size(420.0)
             .resizable(true)
-            .frame(Frame::new().fill(SIDEBAR_BG))
+            .frame(Frame::new().fill(pal().sidebar_bg))
             .show(ui, |ui| member_list(app, ui, actions));
     }
 
     egui::Panel::bottom("composer")
         // No separator line here: it would run under the member list.
         .show_separator_line(false)
-        .frame(Frame::new().fill(APP_BG).inner_margin(Margin::symmetric(16, 12)))
+        .frame(Frame::new().fill(pal().app_bg).inner_margin(Margin::symmetric(16, 12)))
         .show(ui, |ui| composer(app, ui));
 
     egui::CentralPanel::default()
-        .frame(Frame::new().fill(APP_BG))
+        .frame(Frame::new().fill(pal().app_bg))
         .show(ui, |ui| messages(app, ui, actions));
 }
 
 fn channel_sidebar(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
     egui::Panel::bottom("user_bar")
         .exact_size(56.0)
-        .frame(Frame::new().fill(SIDEBAR_BG).inner_margin(Margin::symmetric(8, 8)))
+        .frame(Frame::new().fill(pal().sidebar_bg).inner_margin(Margin::symmetric(8, 8)))
         .show(ui, |ui| user_bar(app, ui, actions));
 
     let title = app.selected_name().unwrap_or("DissCord").to_string();
@@ -1590,9 +1601,9 @@ fn channel_sidebar(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAct
                 // Clicking the arrow or the heading folds the channel list away or opens it again.
                 let (rect, arrow) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), Sense::click());
                 let arrow_icon = if app.channels_collapsed { Icon::ChevronRight } else { Icon::ChevronDown };
-                paint_icon(ui.painter(), rect.center(), arrow_icon, TEXT_MUTED);
+                paint_icon(ui.painter(), rect.center(), arrow_icon, pal().text_muted);
                 let heading = ui.add(
-                    egui::Label::new(RichText::new("TEXT CHANNELS").small().strong().color(TEXT_MUTED))
+                    egui::Label::new(RichText::new("pal().text CHANNELS").small().strong().color(pal().text_muted))
                         .sense(Sense::click()),
                 );
                 if arrow.clicked() || heading.clicked() {
@@ -1667,18 +1678,18 @@ fn channel_row(
     let hovered = resp.hovered();
 
     let bg = if selected {
-        SELECTED_BG
+        pal().selected_bg
     } else if hovered {
-        HOVER_BG
+        pal().hover_bg
     } else {
         Color32::TRANSPARENT
     };
     let color = if selected || unread {
-        TEXT_STRONG
+        pal().text_strong
     } else if hovered {
-        TEXT
+        pal().text
     } else {
-        TEXT_MUTED
+        pal().text_muted
     };
 
     // The gear sits on top of the row, so clicking it opens the menu instead of joining.
@@ -1695,9 +1706,9 @@ fn channel_row(
         color,
     );
     if selected || hovered {
-        paint_icon(painter, gear_rect.center(), Icon::Gear, TEXT_MUTED);
+        paint_icon(painter, gear_rect.center(), Icon::Gear, pal().text_muted);
     } else if unread {
-        painter.circle_filled(rect.right_center() - egui::vec2(12.0, 0.0), 4.0, TEXT_STRONG);
+        painter.circle_filled(rect.right_center() - egui::vec2(12.0, 0.0), 4.0, pal().text_strong);
     }
 
     egui::Popup::menu(&gear).show(|ui| channel_menu_items(ui, name, unread, actions));
@@ -1863,9 +1874,9 @@ fn paint_icon(painter: &egui::Painter, c: egui::Pos2, icon: Icon, color: Color32
 /// A square icon button that highlights on hover. Returns its response.
 fn icon_button(ui: &mut Ui, icon: Icon, size: f32, active: bool) -> Response {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(size, size), Sense::click());
-    let color = if active || resp.hovered() { TEXT_STRONG } else { TEXT_MUTED };
+    let color = if active || resp.hovered() { pal().text_strong } else { pal().text_muted };
     if resp.hovered() {
-        ui.painter().rect_filled(rect, CornerRadius::same(4), HOVER_BG);
+        ui.painter().rect_filled(rect, CornerRadius::same(4), pal().hover_bg);
     }
     paint_icon(ui.painter(), rect.center(), icon, color);
     resp
@@ -1880,7 +1891,7 @@ fn hoverable(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
             egui::pos2(ui.max_rect().left(), rect.top()),
             egui::pos2(ui.max_rect().right(), rect.bottom()),
         );
-        ui.painter().set(background, egui::Shape::rect_filled(full, CornerRadius::ZERO, HOVER_BG));
+        ui.painter().set(background, egui::Shape::rect_filled(full, CornerRadius::ZERO, pal().hover_bg));
     }
 }
 
@@ -1893,9 +1904,9 @@ fn divider_label(ui: &mut Ui, text: &str) {
         Align2::CENTER_CENTER,
         text,
         FontId::proportional(12.0),
-        TEXT_MUTED,
+        pal().text_muted,
     );
-    let line = egui::Stroke::new(1.0, SELECTED_BG);
+    let line = egui::Stroke::new(1.0, pal().selected_bg);
     let y = rect.center().y;
     painter.hline(rect.left() + 16.0..=(label.left() - 8.0).max(rect.left() + 16.0), y, line);
     painter.hline(rect.right() - 16.0..=(label.right() + 8.0).min(rect.right() - 16.0), y, line);
@@ -1909,9 +1920,9 @@ fn new_messages_divider(ui: &mut Ui) {
         egui::pos2(rect.right() - 46.0, rect.center().y - 8.0),
         egui::vec2(36.0, 16.0),
     );
-    painter.hline(rect.left() + 16.0..=(pill.left() - 6.0), rect.center().y, egui::Stroke::new(1.0, RED));
-    painter.rect_filled(pill, CornerRadius::same(4), RED);
-    painter.text(pill.center(), Align2::CENTER_CENTER, "NEW", FontId::proportional(10.0), TEXT_STRONG);
+    painter.hline(rect.left() + 16.0..=(pill.left() - 6.0), rect.center().y, egui::Stroke::new(1.0, pal().red));
+    painter.rect_filled(pill, CornerRadius::same(4), pal().red);
+    painter.text(pill.center(), Align2::CENTER_CENTER, "NEW", FontId::proportional(10.0), pal().text_strong);
 }
 
 /// Items in a channel's menu (right-click, or the gear on its row).
@@ -1941,19 +1952,19 @@ fn user_bar(app: &DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
     // Room kept free on the right for the mic, headset, chevrons and gear.
     const ICON_BLOCK_WIDTH: f32 = 130.0;
     Frame::new()
-        .fill(USER_BAR_BG)
+        .fill(pal().user_bar_bg)
         .corner_radius(CornerRadius::same(8))
         .inner_margin(Margin::symmetric(6, 4))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
-                avatar(ui, &app.user, 32.0, Some(GREEN));
+                avatar(ui, &app.user, 32.0, Some(pal().green));
                 ui.add_space(4.0);
                 let name_width = (ui.available_width() - ICON_BLOCK_WIDTH).max(40.0);
                 ui.vertical(|ui| {
                     ui.set_width(name_width);
-                    ui.add(egui::Label::new(RichText::new(&app.user).strong().color(TEXT_STRONG)).truncate());
-                    ui.label(RichText::new("Online").small().color(TEXT_MUTED));
+                    ui.add(egui::Label::new(RichText::new(&app.user).strong().color(pal().text_strong)).truncate());
+                    ui.label(RichText::new("Online").small().color(pal().text_muted));
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
@@ -2008,7 +2019,7 @@ fn member_heading(ui: &mut Ui, title: &str, count: usize) {
             RichText::new(format!("{title} — {count}"))
                 .small()
                 .strong()
-                .color(TEXT_MUTED),
+                .color(pal().text_muted),
         );
     });
     ui.add_space(4.0);
@@ -2023,13 +2034,13 @@ fn member_row(ui: &mut Ui, app: &DissCordApp, name: &str, online: bool, actions:
     hoverable(ui, |ui| {
         ui.horizontal(|ui| {
             ui.add_space(8.0);
-            let status = if online { Some(GREEN) } else { None };
+            let status = if online { Some(pal().green) } else { None };
             avatar(ui, name, 32.0, status);
             ui.add_space(4.0);
             let color = match (online, name == app.user) {
-                (true, true) => TEXT_STRONG,
-                (true, false) => TEXT,
-                (false, _) => TEXT_MUTED,
+                (true, true) => pal().text_strong,
+                (true, false) => pal().text,
+                (false, _) => pal().text_muted,
             };
             user_name(ui, name, RichText::new(name).color(color), actions);
             if app.owner.as_deref() == Some(name) {
@@ -2054,12 +2065,12 @@ fn header(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
     // One row, centred vertically in the bar: the channel name on the left, icons and search box on the right.
     ui.horizontal_centered(|ui| {
         ui.add_space(16.0);
-        ui.label(RichText::new("#").size(22.0).color(TEXT_MUTED));
-        ui.label(RichText::new(&app.channel).strong().size(16.0).color(TEXT_STRONG));
+        ui.label(RichText::new("#").size(22.0).color(pal().text_muted));
+        ui.label(RichText::new(&app.channel).strong().size(16.0).color(pal().text_strong));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(12.0);
             Frame::new()
-                .fill(RAIL_BG)
+                .fill(pal().rail_bg)
                 .corner_radius(CornerRadius::same(4))
                 .inner_margin(Margin::symmetric(8, 5))
                 .show(ui, |ui| {
@@ -2072,7 +2083,7 @@ fn header(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
                                 .desired_width(206.0),
                         );
                         let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), Sense::hover());
-                        paint_icon(ui.painter(), rect.center(), Icon::Search, TEXT_MUTED);
+                        paint_icon(ui.painter(), rect.center(), Icon::Search, pal().text_muted);
                     });
                 });
             ui.add_space(8.0);
@@ -2093,7 +2104,7 @@ fn composer(app: &mut DissCordApp, ui: &mut Ui) {
         icon_button(ui, Icon::Plus, 40.0, false).on_hover_text(NOT_YET_TIP);
         let box_width = ui.available_width() - 48.0;
         Frame::new()
-            .fill(INPUT_BG)
+            .fill(pal().input_bg)
             .corner_radius(CornerRadius::same(8))
             .inner_margin(Margin::symmetric(12, 10))
             .show(ui, |ui| {
@@ -2122,7 +2133,7 @@ fn composer(app: &mut DissCordApp, ui: &mut Ui) {
         icon_button(ui, Icon::Apps, 40.0, false).on_hover_text(NOT_YET_TIP);
     });
     if app.status.starts_with("Error") {
-        ui.label(RichText::new(&app.status).small().color(RED));
+        ui.label(RichText::new(&app.status).small().color(pal().red));
     }
 }
 
@@ -2145,7 +2156,7 @@ fn messages(app: &DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.add_space(16.0);
-                    ui.label(RichText::new("No messages match your search.").color(TEXT_MUTED));
+                    ui.label(RichText::new("No messages match your search.").color(pal().text_muted));
                 });
             }
 
@@ -2204,9 +2215,9 @@ fn welcome(ui: &mut Ui, channel: &str) {
                 RichText::new(format!("Welcome to #{channel}!"))
                     .size(28.0)
                     .strong()
-                    .color(TEXT_STRONG),
+                    .color(pal().text_strong),
             );
-            ui.label(RichText::new(format!("This is the start of the #{channel} channel.")).color(TEXT_MUTED));
+            ui.label(RichText::new(format!("This is the start of the #{channel} channel.")).color(pal().text_muted));
         });
     });
     ui.add_space(16.0);
@@ -2236,7 +2247,7 @@ fn full_message(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut V
                         RichText::new(&m.author).strong().color(name_color(&m.author)),
                         actions,
                     );
-                    ui.label(RichText::new(stamp_label(m.timestamp)).small().color(TEXT_MUTED));
+                    ui.label(RichText::new(stamp_label(m.timestamp)).small().color(pal().text_muted));
                 });
                 // The text starts at the same x as the text of grouped messages (see compact_message).
                 let text_left = row_left + AVATAR_INDENT + 16.0;
@@ -2306,7 +2317,7 @@ fn message_row(
         None => over_row || over_toolbar,
     };
     if shows {
-        ui.painter().set(background, egui::Shape::rect_filled(full, CornerRadius::ZERO, HOVER_BG));
+        ui.painter().set(background, egui::Shape::rect_filled(full, CornerRadius::ZERO, pal().hover_bg));
         if m.id != 0 {
             let toolbar = message_toolbar(ui, app, m, full, actions);
             ui.ctx().data_mut(|d| d.insert_temp(key, toolbar));
@@ -2406,7 +2417,7 @@ fn emoji_picker(ui: &mut Ui, id: i64, actions: &mut Vec<MenuAction>) -> bool {
                 }
                 shown = true;
                 ui.add_space(6.0);
-                ui.label(RichText::new(category).small().strong().color(TEXT_MUTED));
+                ui.label(RichText::new(category).small().strong().color(pal().text_muted));
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
                     for (name, emoji) in emoji {
@@ -2418,7 +2429,7 @@ fn emoji_picker(ui: &mut Ui, id: i64, actions: &mut Vec<MenuAction>) -> bool {
                 });
             }
             if !shown {
-                ui.label(RichText::new("No emoji match.").color(TEXT_MUTED));
+                ui.label(RichText::new("No emoji match.").color(pal().text_muted));
             }
         });
     picked
@@ -2451,8 +2462,8 @@ fn message_toolbar(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, row: egui::R
         .fixed_pos(row.right_top() + egui::vec2(-16.0, -6.0))
         .show(&ctx, |ui| {
             Frame::new()
-                .fill(SIDEBAR_BG)
-                .stroke(egui::Stroke::new(1.0, HOVER_BG))
+                .fill(pal().sidebar_bg)
+                .stroke(egui::Stroke::new(1.0, pal().hover_bg))
                 .corner_radius(CornerRadius::same(6))
                 .inner_margin(Margin::symmetric(4, 2))
                 .show(ui, |ui| {
@@ -2464,7 +2475,7 @@ fn message_toolbar(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, row: egui::R
                         }
                         // A grey smile, like the add-reaction button in Discord.
                         let picker = ui.add(
-                            egui::Button::new(RichText::new("☺").size(20.0).color(TEXT_MUTED)).frame(false),
+                            egui::Button::new(RichText::new("☺").size(20.0).color(pal().text_muted)).frame(false),
                         );
                         picker_rect = picker.rect;
                         if picker.clicked() {
@@ -2472,7 +2483,7 @@ fn message_toolbar(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, row: egui::R
                         }
                         // Edit and delete are only offered for your own messages.
                         if m.author_id == app.user_id {
-                            let more = ui.add(egui::Button::new(RichText::new("⋯").strong().color(TEXT_MUTED)).frame(false));
+                            let more = ui.add(egui::Button::new(RichText::new("⋯").strong().color(pal().text_muted)).frame(false));
                             more_rect = more.rect;
                             if more.clicked() {
                                 clicked = Some((open != Some(OpenMenu::More)).then_some(OpenMenu::More));
@@ -2498,8 +2509,8 @@ fn message_toolbar(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, row: egui::R
             .fixed_pos(at)
             .show(&ctx, |ui| {
                 Frame::new()
-                    .fill(SIDEBAR_BG)
-                    .stroke(egui::Stroke::new(1.0, HOVER_BG))
+                    .fill(pal().sidebar_bg)
+                    .stroke(egui::Stroke::new(1.0, pal().hover_bg))
                     .corner_radius(CornerRadius::same(8))
                     .shadow(egui::epaint::Shadow {
                         offset: [0, 4],
@@ -2562,10 +2573,10 @@ fn message_text(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut V
         return;
     }
     ui.horizontal(|ui| {
-        ui.add(egui::Label::new(RichText::new(&m.text).color(TEXT)).sense(Sense::hover()))
+        ui.add(egui::Label::new(RichText::new(&m.text).color(pal().text)).sense(Sense::hover()))
             .on_hover_text(time_label(m.timestamp));
         if m.edited {
-            ui.label(RichText::new("(edited)").small().color(TEXT_MUTED));
+            ui.label(RichText::new("(edited)").small().color(pal().text_muted));
         }
     });
     if !m.reactions.is_empty() {
@@ -2573,15 +2584,15 @@ fn message_text(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, actions: &mut V
         ui.horizontal_wrapped(|ui| {
             for reaction in &m.reactions {
                 let mine = reaction.users.iter().any(|u| u == &app.user);
-                let fill = if mine { ACCENT.gamma_multiply(0.45) } else { HOVER_BG };
-                let count = RichText::new(reaction.users.len().to_string()).small().color(TEXT_STRONG);
+                let fill = if mine { pal().accent.gamma_multiply(0.45) } else { pal().hover_bg };
+                let count = RichText::new(reaction.users.len().to_string()).small().color(pal().text_strong);
                 let chip = match emoji_image(&reaction.emoji, 16.0) {
                     Some(image) => egui::Button::image_and_text(image, count),
                     None => egui::Button::new(RichText::new(format!("{}  {}", reaction.emoji, reaction.users.len()))),
                 }
                 .fill(fill)
                     .corner_radius(CornerRadius::same(8))
-                    .stroke(egui::Stroke::new(1.0, if mine { ACCENT } else { HOVER_BG }))
+                    .stroke(egui::Stroke::new(1.0, if mine { pal().accent } else { pal().hover_bg }))
                     .min_size(egui::vec2(0.0, 22.0));
                 if ui.add(chip).on_hover_text(reaction.users.join(", ")).clicked() {
                     actions.push(MenuAction::React { id: m.id, emoji: reaction.emoji.clone() });
@@ -2612,7 +2623,7 @@ fn system_notice(ui: &mut Ui, text: &str) {
     ui.add_space(6.0);
     ui.horizontal(|ui| {
         ui.add_space(16.0);
-        ui.label(RichText::new(text).italics().color(TEXT_MUTED));
+        ui.label(RichText::new(text).italics().color(pal().text_muted));
     });
 }
 
@@ -2645,12 +2656,12 @@ fn avatar(ui: &mut Ui, name: &str, size: f32, status: Option<Color32>) {
         Align2::CENTER_CENTER,
         initial,
         FontId::proportional(size * 0.45),
-        TEXT_STRONG,
+        pal().text_strong,
     );
 
     if let Some(color) = status {
         let dot = rect.right_bottom() - egui::vec2(size * 0.18, size * 0.18);
-        painter.circle_filled(dot, size * 0.17, SIDEBAR_BG);
+        painter.circle_filled(dot, size * 0.17, pal().sidebar_bg);
         painter.circle_filled(dot, size * 0.12, color);
     }
 }
@@ -2662,6 +2673,6 @@ fn enter_pressed(ui: &Ui, resp: &Response) -> bool {
 
 fn field_label(ui: &mut Ui, text: &str) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new(text).small().strong().color(TEXT_MUTED));
+        ui.label(RichText::new(text).small().strong().color(pal().text_muted));
     });
 }

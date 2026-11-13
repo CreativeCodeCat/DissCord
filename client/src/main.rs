@@ -27,6 +27,11 @@ fn main() -> eframe::Result {
         "DissCord",
         options,
         Box::new(|cc| {
+            let theme = cc
+                .storage
+                .and_then(|storage| eframe::get_value(storage, app::THEME_KEY))
+                .unwrap_or_default();
+            theme::set(theme);
             theme::apply(&cc.egui_ctx);
             egui_extras::install_image_loaders(&cc.egui_ctx);
             let servers = cc
@@ -62,6 +67,7 @@ fn main() -> eframe::Result {
                 selected: None,
                 remember: true,
                 show_create_box,
+                theme,
                 saved_session,
                 ..Default::default()
             };
@@ -74,6 +80,11 @@ fn main() -> eframe::Result {
 
 impl eframe::App for DissCordApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // Apply a theme change saved on the Account page.
+        if theme::current() != self.theme {
+            theme::set(self.theme);
+            theme::apply(ui.ctx());
+        }
         self.drain_network();
         ui::root(self, ui);
     }
@@ -82,6 +93,7 @@ impl eframe::App for DissCordApp {
         eframe::set_value(storage, SERVERS_KEY, &self.servers);
         eframe::set_value(storage, trust::PINS_KEY, &*trust::PINS.lock().unwrap());
         eframe::set_value(storage, app::CREATE_BOX_KEY, &self.show_create_box);
+        eframe::set_value(storage, app::THEME_KEY, &self.theme);
         let session = self.stored_session();
         if let Some(saved) = &session {
             if let Err(e) = keychain::store(&saved.name, &saved.token) {
