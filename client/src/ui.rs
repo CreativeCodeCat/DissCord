@@ -1582,10 +1582,10 @@ fn chat(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
         .show(ui, |ui| messages(app, ui, actions));
 }
 
-/// The Direct messages page of the connected server: your conversations on the left, the open
-/// one in the middle. Each server keeps its own direct messages.
+/// The Direct messages page: your conversations on every server you are in, grouped by server, on
+/// the left. The open one is in the middle. Each server keeps its own direct messages, so opening
+/// one on another server switches to that server.
 fn home(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
-    let mut to_join: Option<String> = None;
     egui::Panel::left("dm_list")
         .default_size(250.0)
         .min_size(250.0)
@@ -1599,18 +1599,45 @@ fn home(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
                 ui.label(RichText::new("DIRECT MESSAGES").small().strong().color(pal().text_muted));
             });
             ui.add_space(4.0);
-            if app.dms.is_empty() {
+            let any = app.dm_links.iter().any(|l| !l.dms.is_empty());
+            if !any {
                 ui.horizontal_wrapped(|ui| {
                     ui.add_space(12.0);
-                    ui.label(RichText::new("No direct messages yet. Right-click a member's name and choose Message.").color(pal().text_muted));
+                    let text = if app.servers.is_empty() {
+                        "Add a server to see your direct messages."
+                    } else if app.dm_links.is_empty() {
+                        "Connecting to your servers..."
+                    } else {
+                        "No direct messages yet. Right-click a member's name and choose Message."
+                    };
+                    ui.label(RichText::new(text).color(pal().text_muted));
                 });
             }
-            for dm in &app.dms {
-                let selected = dm.channel == app.channel;
-                let unread = app.unread.contains(&dm.channel);
-                let label = format!("@ {}", dm.name);
-                if channel_row(ui, &dm.channel, &label, selected, unread, actions) && !selected {
-                    to_join = Some(dm.channel.clone());
+            // Servers in the order of the rail.
+            for server in &app.servers {
+                let Some(link) = app.dm_links.iter().find(|l| l.addr == server.addr) else {
+                    continue;
+                };
+                if link.dms.is_empty() {
+                    continue;
+                }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(8.0);
+                    let heading = if link.server_name.is_empty() { &server.name } else { &link.server_name };
+                    ui.label(RichText::new(heading.to_uppercase()).small().strong().color(pal().text_muted));
+                });
+                ui.add_space(4.0);
+                for dm in &link.dms {
+                    let here = app.conn.is_some() && app.connected_addr == link.addr;
+                    let selected = here && dm.channel == app.channel;
+                    let unread = !selected && link.unread.contains(&dm.channel);
+                    let label = format!("@ {}", dm.name);
+                    // The row id must be unique across servers, so it includes the address.
+                    let id = format!("dm-{}-{}", link.addr, dm.channel);
+                    if channel_row(ui, &id, &label, selected, unread, actions) && !selected {
+                        actions.push(MenuAction::OpenDmOn { addr: link.addr.clone(), channel: dm.channel.clone() });
+                    }
                 }
             }
         });
@@ -1646,9 +1673,6 @@ fn home(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
             }
         });
 
-    if let Some(channel) = to_join {
-        app.join(&channel);
-    }
 }
 
 fn channel_sidebar(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {

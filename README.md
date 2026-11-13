@@ -172,8 +172,9 @@ client is in, plus `joined` (with up to 200 messages of history).
   the row at the top of the picker. The choice is saved between runs.
 - Direct messages are between two members of the same server. Right-click a
   member's name and choose Message. They are listed on the Direct messages page
-  (the button at the top of the server rail), which shows the conversations of
-  the server you are connected to. Only the two members can read, reply in, or
+  (the button at the top of the server rail), grouped by server. The app keeps a
+  background connection to each saved server for this, so a server that is
+  offline shows no direct messages until it is reachable again. Only the two members can read, reply in, or
   react to a direct message, and the server owner cannot delete one. They are
   stored as plain text in the server's database, so whoever runs the server can
   read them. Direct messages between people on different servers are not
