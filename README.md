@@ -160,7 +160,8 @@ client is in, plus `joined` (with up to 200 messages of history).
   button. Removing a server from your list forgets its certificate.
 - Each chat server also remembers the auth service's certificate, in `pin:`
   rows of `server_info` in its database. After the auth service is reset on
-  purpose, delete those rows in each chat server's database.
+  purpose, run `server forget-auth-pin [DB_PATH]` for each chat server's
+  database, then start the server as usual.
 
 **Messages**
 
