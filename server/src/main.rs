@@ -269,9 +269,13 @@ where
     }
 
     // Handshake: otherwise the first message must be a Connect carrying a session token.
+    let session_token: String;
     let (user, display) = match serde_json::from_str::<ClientMsg>(&first) {
         Ok(ClientMsg::Connect { token }) => match check_session(&state, &auth_addr, &token).await {
-            Ok(identity) => (identity.id, identity.name),
+            Ok(identity) => {
+                session_token = token;
+                (identity.id, identity.name)
+            }
             Err(text) => {
                 send(&mut writer, &ServerMsg::Error { text }).await?;
                 return Ok(());
@@ -330,6 +334,11 @@ where
 
                     ClientMsg::Info => {
                         send(&mut writer, &public_info(&state)).await?;
+                    }
+
+                    ClientMsg::Logout => {
+                        let _ = state.lock().unwrap().db.forget_cached_session(&session_token);
+                        break;
                     }
 
                     ClientMsg::Peers { known } => {
