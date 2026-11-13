@@ -54,7 +54,7 @@ pub fn check_pin(remembered: Option<&str>, observed: &str) -> Result<bool, Strin
         Some(known) if known == observed => Ok(false),
         Some(_) => Err(
             "This server's certificate has changed since you last connected. \
-             If you trust the change, remove the server from your list and add it again."
+             If you trust the change, choose Trust the new certificate."
                 .to_string(),
         ),
     }

@@ -104,6 +104,8 @@ pub enum MenuAction {
     OpenServerSettings,
     OpenDiscover,
     RetryServer,
+    /// The server's certificate changed, and the user trusts the new one.
+    TrustNewServerCert,
 }
 
 #[derive(Default)]
@@ -709,6 +711,14 @@ impl DissCordApp {
             MenuAction::ToggleCreateBox => self.show_create_box = !self.show_create_box,
             MenuAction::ToggleMembers => self.members_hidden = !self.members_hidden,
             MenuAction::Logout => self.logout(),
+            MenuAction::TrustNewServerCert => {
+                if let Some(index) = self.selected {
+                    let key = format!("server:{}", self.servers[index].addr);
+                    crate::trust::forget(&key);
+                }
+                self.server_error = None;
+                self.connect_selected(ctx);
+            }
             MenuAction::SelectServer(i) => self.select_server(i, ctx),
             MenuAction::RemoveServer(i) => self.remove_server(i),
             MenuAction::OpenAddServer => {

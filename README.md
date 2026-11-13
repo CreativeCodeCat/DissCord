@@ -123,35 +123,43 @@ client is in, plus `joined` (with up to 200 messages of history).
 
 ## Limitations
 
-- Accounts have no email verification and no password reset.
+**Accounts and login**
+
+- There is no email verification and no password reset.
 - Passwords are hashed with Argon2. Emails are stored as keyed hashes, using a
-  secret key kept in `<auth database>.key` beside the database. Keep that file
-  with the database: without it, nobody can log in. Copying only the database
-  does not reveal emails.
-- The auth service must be running for anyone to log in. While it cannot be
-  reached, the client shows a red warning, and a chat server still accepts a
-  session the auth service confirmed within the last 24 hours. Logging out only
-  reaches the servers once the auth service is back, so a logged-out session can
-  still work on a server during an outage. Each server keeps these sessions in
-  its database.
-- With "Keep me logged in on this computer" ticked, the client saves your
-  session token (never your password) in the system keychain, and it stays
-  logged in after a restart. Without it, you log in again after restarting. On
-  Linux this needs a Secret Service provider such as GNOME Keyring or KWallet.
-  Anyone who can unlock the keychain can use your session until it is logged
-  out.
+  secret key in `<auth database>.key`, beside the database. Keep that file with
+  the database: without it, nobody can log in. The database alone does not
+  reveal emails.
+- The auth service must be running for anyone to log in. While it is
+  unreachable, the client shows a red warning and chat servers still accept a
+  session the auth service confirmed within the last 24 hours. Each server keeps
+  these sessions in its database. Logging out reaches the servers only once the
+  auth service is back, so a logged-out session can still work on a server
+  during an outage.
+- With "Keep me logged in on this computer" ticked, the session token (never the
+  password) is saved in the system keychain, and you stay logged in after a
+  restart. On Linux this needs a Secret Service provider such as GNOME Keyring
+  or KWallet. Anyone who can unlock the keychain can use the session until it is
+  logged out.
+- Databases from earlier versions keep their old `accounts` and `users` tables,
+  which are no longer used. Accounts registered on the old chat servers must
+  register again with the auth service.
+
+**Connections and certificates**
+
 - Connections use TLS with self-signed certificates. Each server and the auth
-  service makes its own certificate the first time it runs. A client trusts
-  the first certificate it sees from an address and refuses a different one
-  later. Removing a server from your list forgets its certificate. If the auth
-  service or a server is reset on purpose, its remembered certificate must be
-  cleared by hand: delete the `pin:` rows in that server's database, or the
-  `disscord_pins` entry in the client's app data file.
-- Databases from earlier versions keep their old `accounts` and `users`
-  tables, which are no longer used. Accounts registered on the old chat
-  servers must register again with the auth service.
-- Only the author of a message can edit or delete it. Deleting is immediate and
-  has no confirmation step.
-- Reactions accept any emoji up to 16 characters. The picker offers the standard
-  emoji, without skin tone variants.
+  service makes its own certificate the first time it runs. A client trusts the
+  first certificate it sees from an address. A different certificate from that
+  address is refused, and the client offers a "Trust the new certificate"
+  button. Removing a server from your list forgets its certificate.
+- Each chat server also remembers the auth service's certificate, in `pin:`
+  rows of `server_info` in its database. After the auth service is reset on
+  purpose, delete those rows in each chat server's database.
+
+**Messages**
+
+- Only the author of a message can edit or delete it. Deleting happens at once,
+  with no confirmation step.
+- Reactions accept any emoji of up to 16 characters. The picker offers the
+  standard emoji, without skin tone variants.
 - There are no direct messages yet.

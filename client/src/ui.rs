@@ -546,14 +546,23 @@ fn login_form(app: &mut DissCordApp, ui: &mut Ui) {
         }
     });
 
-    if let Some(err) = &app.login_error {
+    if let Some(err) = app.login_error.clone() {
         ui.add_space(8.0);
-        ui.label(RichText::new(err).color(RED));
+        ui.label(RichText::new(&err).color(RED));
+        if is_certificate_change(&err) && primary_button(ui, "Trust the new certificate").clicked() {
+            crate::trust::forget(&format!("auth:{}", crate::auth_client::auth_addr()));
+            app.login_error = None;
+        }
     }
 
     if submit {
         app.log_in();
     }
+}
+
+/// True for the error shown when a server or the auth service presents a different certificate.
+fn is_certificate_change(err: &str) -> bool {
+    err.contains("certificate has changed")
 }
 
 /// Shown when logged in but no server is open: add one, wait for a join, or retry.
@@ -589,9 +598,13 @@ fn server_status(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuActio
                             ui.label(
                                 RichText::new("Couldn't join the server").size(24.0).strong().color(TEXT_STRONG),
                             );
-                            ui.label(RichText::new(err).color(RED));
+                            ui.label(RichText::new(&err).color(RED));
                             ui.add_space(16.0);
-                            if app.selected.is_some() && primary_button(ui, "Try again").clicked() {
+                            if is_certificate_change(&err) {
+                                if primary_button(ui, "Trust the new certificate").clicked() {
+                                    actions.push(MenuAction::TrustNewServerCert);
+                                }
+                            } else if app.selected.is_some() && primary_button(ui, "Try again").clicked() {
                                 actions.push(MenuAction::RetryServer);
                             }
                         } else {
