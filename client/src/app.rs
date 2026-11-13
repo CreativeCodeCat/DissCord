@@ -21,6 +21,7 @@ pub const SERVERS_KEY: &str = "disscord_servers";
 /// Key under which the "show channel create box" setting is stored by eframe.
 pub const CREATE_BOX_KEY: &str = "disscord_show_create_box";
 pub const THEME_KEY: &str = "disscord_theme";
+pub const SKIN_TONE_KEY: &str = "disscord_skin_tone";
 const MIN_PASSWORD_LEN: usize = 8;
 
 /// A server the user added with the "+" button. Saved between runs.
@@ -87,6 +88,8 @@ pub enum Entry {
 /// Something a menu or button asked for. Drawing code queues these while it
 /// runs; the app applies them once the frame is finished.
 pub enum MenuAction {
+    /// Choose the skin tone for the reaction picker: 0 is the default, 1 to 5 the tones.
+    SetSkinTone(usize),
     StartEdit { id: i64, text: String },
     /// Ask the user to confirm deleting a message.
     AskDelete(i64),
@@ -232,6 +235,8 @@ pub struct DissCordApp {
     pub create_box_open: bool,
     /// Setting: the colour theme. Saved between runs.
     pub theme: crate::theme::Theme,
+    /// Setting: the skin tone the reaction picker uses (0 is the default). Saved between runs.
+    pub skin_tone: usize,
 
     /// Last notice, shown in the composer footer.
     pub status: String,
@@ -896,6 +901,7 @@ impl DissCordApp {
             }
             MenuAction::ToggleMembers => self.members_hidden = !self.members_hidden,
             MenuAction::Logout => self.logout(),
+            MenuAction::SetSkinTone(tone) => self.skin_tone = tone,
             MenuAction::TrustNewServerCert => {
                 if let Some(index) = self.selected {
                     let key = format!("server:{}", self.servers[index].addr);

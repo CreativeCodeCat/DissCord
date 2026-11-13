@@ -2384,7 +2384,7 @@ fn emoji_button(ui: &mut Ui, emoji: &str, size: f32, hover: Option<&str>) -> boo
 /// The emoji picker: a search box and every emoji grouped by category, like a phone keyboard.
 /// Picking one reacts to the message and closes the menu.
 /// Returns true when an emoji was picked.
-fn emoji_picker(ui: &mut Ui, id: i64, actions: &mut Vec<MenuAction>) -> bool {
+fn emoji_picker(ui: &mut Ui, id: i64, tone: usize, actions: &mut Vec<MenuAction>) -> bool {
     let mut picked = false;
     ui.set_width(340.0);
     let search_id = egui::Id::NULL.with("emoji_picker_search");
@@ -2401,9 +2401,7 @@ fn emoji_picker(ui: &mut Ui, id: i64, actions: &mut Vec<MenuAction>) -> bool {
     let query = query.trim().to_lowercase();
 
     // The skin tone row. 0 is the default yellow; 1 to 5 are the tones, light to dark. Emoji with
-    // tones show the chosen one. The choice lasts for this session.
-    let tone_id = egui::Id::NULL.with("emoji_picker_tone");
-    let mut tone: usize = ui.data(|d| d.get_temp(tone_id)).unwrap_or(0);
+    // tones show the chosen one. The choice is saved between runs.
     const TONE_NAMES: [&str; 6] = [
         "Default",
         "Light skin tone",
@@ -2421,13 +2419,12 @@ fn emoji_picker(ui: &mut Ui, id: i64, actions: &mut Vec<MenuAction>) -> bool {
                 .corner_radius(CornerRadius::same(6))
                 .stroke(egui::Stroke::new(1.5, if selected { pal().accent } else { egui::Color32::TRANSPARENT }));
             frame.show(ui, |ui| {
-                if emoji_button(ui, sample, 20.0, Some(name)) {
-                    tone = i;
+                if emoji_button(ui, sample, 20.0, Some(name)) && i != tone {
+                    actions.push(MenuAction::SetSkinTone(i));
                 }
             });
         }
     });
-    ui.data_mut(|d| d.insert_temp(tone_id, tone));
 
     egui::ScrollArea::vertical()
         .max_height(320.0)
@@ -2554,7 +2551,7 @@ fn message_toolbar(ui: &mut Ui, app: &DissCordApp, m: &ChatMessage, row: egui::R
                     .inner_margin(Margin::symmetric(6, 6))
                     .show(ui, |ui| match menu {
                         OpenMenu::Picker => {
-                            picked = emoji_picker(ui, m.id, actions);
+                            picked = emoji_picker(ui, m.id, app.skin_tone, actions);
                         }
                         OpenMenu::More | OpenMenu::Context => {
                             ui.set_width(180.0);
