@@ -124,8 +124,10 @@ client is in, plus `joined` (with up to 200 messages of history).
 ## Limitations
 
 - Accounts have no email verification and no password reset.
-- Passwords are hashed with Argon2, but emails are stored in plain text in the
-  auth database, so anyone who can read that file can see them.
+- Passwords are hashed with Argon2. Emails are stored as keyed hashes, using a
+  secret key kept in `<auth database>.key` beside the database. Keep that file
+  with the database: without it, nobody can log in. Copying only the database
+  does not reveal emails.
 - The auth service must be running for anyone to log in or for chat servers to
   accept connections.
 - With "Keep me logged in on this computer" ticked, the client saves your

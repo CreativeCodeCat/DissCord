@@ -28,7 +28,12 @@ async fn main() -> anyhow::Result<()> {
     let addr = args.next().unwrap_or_else(|| DEFAULT_AUTH_ADDR.to_string());
     let db_path = args.next().unwrap_or_else(|| DEFAULT_DB_PATH.to_string());
 
-    let db = Db::open(&db_path)?;
+    let key = load_email_key(&db_path)?;
+    let mut db = Db::open(&db_path, key)?;
+    let converted = db.hash_plain_emails()?;
+    if converted > 0 {
+        println!("hashed {converted} stored email address(es)");
+    }
     // The service's own certificate. It is made the first time the service runs.
     let (cert, key) = match db.tls_identity()? {
         Some(identity) => identity,
@@ -60,6 +65,42 @@ async fn main() -> anyhow::Result<()> {
             }
         });
     }
+}
+
+/// The secret used to hash emails. It is kept in `<DB_PATH>.key`, made the first time the
+/// service runs. Keep it apart from the database: someone with only the database cannot read
+/// the emails.
+fn load_email_key(db_path: &str) -> anyhow::Result<[u8; 32]> {
+    let path = format!("{db_path}.key");
+    if let Ok(text) = std::fs::read_to_string(&path) {
+        let bytes = hex_decode(text.trim()).filter(|b| b.len() == 32);
+        return bytes
+            .map(|b| b.try_into().expect("checked length"))
+            .ok_or_else(|| anyhow::anyhow!("{path} does not hold a valid key"));
+    }
+    // No key file yet. That is only safe when no account has a hashed email, because a new key
+    // could not match those.
+    if std::path::Path::new(db_path).exists() {
+        let existing = Db::open(db_path, [0; 32])?;
+        if existing.hashed_account_count()? > 0 {
+            anyhow::bail!("{path} is missing, but accounts in {db_path} need it to log in");
+        }
+    }
+    let key: [u8; 32] = rand::random();
+    let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
+    std::fs::write(&path, hex)?;
+    println!("made a new email key in {path}");
+    Ok(key)
+}
+
+fn hex_decode(text: &str) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(text.get(i..i + 2)?, 16).ok())
+        .collect()
 }
 
 /// Reads requests line by line until the client disconnects.
