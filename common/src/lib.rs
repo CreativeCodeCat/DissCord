@@ -45,11 +45,17 @@ pub enum AuthReply {
 /// A single chat message as stored and broadcast by the server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
+    /// Unique id, given by the server when the message is saved. 0 until then.
+    #[serde(default)]
+    pub id: i64,
     pub channel: String,
     pub author: String,
     pub text: String,
     /// Unix timestamp in seconds.
     pub timestamp: u64,
+    /// True once the author has edited the message.
+    #[serde(default)]
+    pub edited: bool,
 }
 
 /// A member of a server and whether they are connected right now.
@@ -88,6 +94,8 @@ pub enum ClientMsg {
     Join { channel: String },
     /// Send a message to the current channel.
     Say { text: String },
+    /// Change the text of one of your own messages.
+    Edit { id: i64, text: String },
     /// Request the list of channels.
     ListChannels,
     /// Change the server's name and description. Only the owner may do this.
@@ -132,6 +140,8 @@ pub enum ServerMsg {
     Peers { addrs: Vec<String> },
     Joined { channel: String, history: Vec<ChatMessage> },
     Message { message: ChatMessage },
+    /// A message in `channel` now has this text.
+    MessageEdited { channel: String, id: i64, text: String },
     Channels { channels: Vec<String> },
     System { channel: String, text: String },
     /// Every member of this server, online or not (sent to everyone on change).

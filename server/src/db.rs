@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS messages (
     channel   TEXT NOT NULL,
     author    TEXT NOT NULL,
     text      TEXT NOT NULL,
-    timestamp INTEGER NOT NULL
+    timestamp INTEGER NOT NULL,
+    edited    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS messages_by_channel ON messages (channel, id);
 ";
@@ -41,6 +42,8 @@ impl Db {
     pub fn open(path: &str) -> rusqlite::Result<Self> {
         let conn = Connection::open(path)?;
         conn.execute_batch(SCHEMA)?;
+        // Databases made before messages could be edited lack this column.
+        let _ = conn.execute("ALTER TABLE messages ADD COLUMN edited INTEGER NOT NULL DEFAULT 0", []);
         // Servers that already have members but no owner: the earliest member becomes the owner.
         conn.execute(
             "INSERT OR IGNORE INTO server_info (key, value)
@@ -200,28 +203,47 @@ impl Db {
         names.collect()
     }
 
-    pub fn save_message(&self, m: &ChatMessage) -> rusqlite::Result<()> {
+    /// Saves a message and returns its new id.
+    pub fn save_message(&self, m: &ChatMessage) -> rusqlite::Result<i64> {
         self.conn.execute(
             "INSERT INTO messages (channel, author, text, timestamp) VALUES (?1, ?2, ?3, ?4)",
             params![m.channel, m.author, m.text, m.timestamp as i64],
         )?;
-        Ok(())
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Changes the text of a message, but only when `author` wrote it. Returns the message's
+    /// channel, or `None` when there is no such message by that author.
+    pub fn edit_message(&self, id: i64, author: &str, text: &str) -> rusqlite::Result<Option<String>> {
+        use rusqlite::OptionalExtension;
+        let changed = self.conn.execute(
+            "UPDATE messages SET text = ?1, edited = 1 WHERE id = ?2 AND author = ?3",
+            params![text, id, author],
+        )?;
+        if changed == 0 {
+            return Ok(None);
+        }
+        self.conn
+            .query_row("SELECT channel FROM messages WHERE id = ?1", params![id], |row| row.get(0))
+            .optional()
     }
 
     /// The most recent `HISTORY_LEN` messages in a channel, oldest first.
     pub fn history(&self, channel: &str) -> rusqlite::Result<Vec<ChatMessage>> {
         let mut stmt = self.conn.prepare(
-            "SELECT channel, author, text, timestamp FROM (
-                 SELECT id, channel, author, text, timestamp
+            "SELECT id, channel, author, text, timestamp, edited FROM (
+                 SELECT id, channel, author, text, timestamp, edited
                  FROM messages WHERE channel = ?1 ORDER BY id DESC LIMIT ?2
              ) ORDER BY id ASC",
         )?;
         let rows = stmt.query_map(params![channel, HISTORY_LEN], |row| {
             Ok(ChatMessage {
-                channel: row.get(0)?,
-                author: row.get(1)?,
-                text: row.get(2)?,
-                timestamp: row.get::<_, i64>(3)? as u64,
+                id: row.get(0)?,
+                channel: row.get(1)?,
+                author: row.get(2)?,
+                text: row.get(3)?,
+                timestamp: row.get::<_, i64>(4)? as u64,
+                edited: row.get::<_, i64>(5)? != 0,
             })
         })?;
         rows.collect()

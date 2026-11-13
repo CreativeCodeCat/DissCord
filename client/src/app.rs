@@ -65,6 +65,11 @@ pub struct Session {
     pub token: String,
 }
 
+/// Where the edit box keeps its text for a message.
+pub fn edit_buffer(id: i64) -> egui::Id {
+    egui::Id::NULL.with(("edit_buffer", id))
+}
+
 /// One entry in a channel's message list.
 pub enum Entry {
     Chat(ChatMessage),
@@ -75,6 +80,9 @@ pub enum Entry {
 /// Something a menu or button asked for. Drawing code queues these while it
 /// runs; the app applies them once the frame is finished.
 pub enum MenuAction {
+    StartEdit { id: i64, text: String },
+    SaveEdit(i64),
+    CancelEdit,
     Mention(String),
     CopyText(String),
     MarkRead(String),
@@ -161,6 +169,8 @@ pub struct DissCordApp {
     pub read_marks: HashMap<String, usize>,
     /// Text in the header's search box. Filters the messages shown.
     pub search: String,
+    /// The message being edited, by id. Its text is kept in egui's temporary data.
+    pub editing: Option<i64>,
     pub messages: HashMap<String, Vec<Entry>>,
 
     // Inputs
@@ -553,6 +563,18 @@ impl DissCordApp {
                     .or_default()
                     .push(Entry::Chat(message));
             }
+            ServerMsg::MessageEdited { channel, id, text } => {
+                let entry = self.messages.get_mut(&channel).and_then(|list| {
+                    list.iter_mut().find_map(|e| match e {
+                        Entry::Chat(m) if m.id == id => Some(m),
+                        _ => None,
+                    })
+                });
+                if let Some(m) = entry {
+                    m.text = text;
+                    m.edited = true;
+                }
+            }
             ServerMsg::Activity { channel } => {
                 if channel != self.channel {
                     self.unread.insert(channel);
@@ -613,6 +635,18 @@ impl DissCordApp {
     /// Carries out a menu or button choice.
     pub fn apply(&mut self, action: MenuAction, ctx: &egui::Context) {
         match action {
+            MenuAction::StartEdit { id, text } => {
+                self.editing = Some(id);
+                ctx.data_mut(|d| d.insert_temp(edit_buffer(id), text));
+                ctx.memory_mut(|m| m.request_focus(edit_buffer(id)));
+            }
+            MenuAction::SaveEdit(id) => {
+                if let Some(text) = ctx.data_mut(|d| d.get_temp::<String>(edit_buffer(id))) {
+                    self.send(ClientMsg::Edit { id, text });
+                }
+                self.editing = None;
+            }
+            MenuAction::CancelEdit => self.editing = None,
             MenuAction::Mention(name) => {
                 self.input.push_str(&format!("@{name} "));
                 self.focus_input = true;
