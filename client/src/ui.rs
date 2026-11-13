@@ -2231,6 +2231,7 @@ fn header(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
 
 /// The message box with the "+" on the left and gift, GIF, sticker and emoji buttons inside.
 fn composer(app: &mut DissCordApp, ui: &mut Ui) {
+    let hint = format!("Message {}", app.channel_label());
     ui.horizontal(|ui| {
         icon_button(ui, Icon::Plus, 40.0, false).on_hover_text(NOT_YET_TIP);
         let box_width = ui.available_width() - 48.0;
@@ -2245,7 +2246,7 @@ fn composer(app: &mut DissCordApp, ui: &mut Ui) {
                     let resp = ui.add(
                         TextEdit::singleline(&mut app.input)
                             .frame(Frame::NONE)
-                            .hint_text(format!("Message {}", app.channel_label()))
+                            .hint_text(hint)
                             .desired_width(inner - 4.0 * 28.0),
                     );
                     if app.focus_input {
