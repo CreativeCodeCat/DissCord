@@ -4,16 +4,17 @@
 //!   servers on the same network find each other by themselves.
 //! - Peer exchange: every so often each server asks the servers it knows for their lists and
 //!   keeps any new ones. A server that stops answering is forgotten after a few failures.
+//!   Connections are TLS, and a server's certificate is remembered the first time it is seen.
 
 use std::time::Duration;
 
 use anyhow::anyhow;
 use common::{ClientMsg, ServerMsg};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{TcpStream, UdpSocket};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::net::UdpSocket;
 use tokio::time::{interval, timeout};
 
-use crate::SharedState;
+use crate::{pin_ok, SharedState};
 
 const BEACON_PREFIX: &str = "DISSCORD ";
 const BEACON_EVERY: Duration = Duration::from_secs(10);
@@ -83,7 +84,18 @@ async fn exchange_with(state: SharedState, advertise: String, peer: String) {
         known.push(advertise.clone());
         known
     };
-    let result = ask_for_peers(&peer, known).await;
+    let result = match timeout(REQUEST_TIMEOUT, common::tls::connect_async(&peer)).await {
+        Ok(Ok((stream, fingerprint))) => {
+            // Check the certificate before sending anything.
+            if pin_ok(&state, "server", &peer, &fingerprint) {
+                ask_over(stream, known).await
+            } else {
+                Err(anyhow!("certificate changed"))
+            }
+        }
+        Ok(Err(e)) => Err(e),
+        Err(e) => Err(e.into()),
+    };
 
     let mut s = state.lock().unwrap();
     match result {
@@ -108,9 +120,11 @@ async fn exchange_with(state: SharedState, advertise: String, peer: String) {
     }
 }
 
-/// Sends our known servers to `addr` and returns the servers it knows.
-async fn ask_for_peers(addr: &str, known: Vec<String>) -> anyhow::Result<Vec<String>> {
-    let mut stream = timeout(REQUEST_TIMEOUT, TcpStream::connect(addr)).await??;
+/// Sends our known servers over an open connection and returns the servers the other end knows.
+async fn ask_over<S>(mut stream: S, known: Vec<String>) -> anyhow::Result<Vec<String>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let mut line = serde_json::to_string(&ClientMsg::Peers { known })?;
     line.push('\n');
     stream.write_all(line.as_bytes()).await?;

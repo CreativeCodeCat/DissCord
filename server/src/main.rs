@@ -11,8 +11,8 @@ use common::{
     DISCOVERY_PORT, MAX_SERVER_DESCRIPTION_LEN, MAX_SERVER_ICON_LEN,
 };
 use db::Db;
-use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 
 const MAX_TEXT_LEN: usize = 2000;
@@ -155,6 +155,17 @@ async fn run_server(config: ServerConfig) -> anyhow::Result<()> {
     let auth_addr = Arc::new(auth_addr);
 
     let db = Db::open(&db_path)?;
+    // This server's own certificate. It is made the first time the server runs.
+    let (cert, key) = match (db.info_value("tls_cert")?, db.info_value("tls_key")?) {
+        (Some(cert), Some(key)) => (cert, key),
+        _ => {
+            let identity = common::tls::new_identity()?;
+            db.set_server_info("tls_cert", &identity.0)?;
+            db.set_server_info("tls_key", &identity.1)?;
+            identity
+        }
+    };
+    let acceptor = common::tls::acceptor(&cert, &key)?;
     let state: SharedState = Arc::new(Mutex::new(State {
         db,
         online: Vec::new(),
@@ -176,15 +187,23 @@ async fn run_server(config: ServerConfig) -> anyhow::Result<()> {
     let (tx, _) = broadcast::channel::<ServerMsg>(256);
 
     let listener = TcpListener::bind(&addr).await?;
-    println!("DissCord server listening on {addr} (known to others as {advertise}), storing data in {db_path}, accounts from {auth_addr}");
+    println!("DissCord server listening on {addr} (TLS, known to others as {advertise}), storing data in {db_path}, accounts from {auth_addr}");
 
     loop {
         let (socket, peer) = listener.accept().await?;
         let state = state.clone();
         let tx = tx.clone();
         let auth_addr = auth_addr.clone();
+        let acceptor = acceptor.clone();
         tokio::spawn(async move {
             println!("connection from {peer}");
+            let socket = match acceptor.accept(socket).await {
+                Ok(socket) => socket,
+                Err(e) => {
+                    eprintln!("{peer}: TLS handshake failed: {e}");
+                    return;
+                }
+            };
             if let Err(e) = handle_connection(socket, state, tx, auth_addr).await {
                 eprintln!("{peer}: {e}");
             }
@@ -207,13 +226,16 @@ fn numbered_path(db_path: &str, port: u16) -> String {
     path.with_file_name(name).to_string_lossy().into_owned()
 }
 
-async fn handle_connection(
-    socket: TcpStream,
+async fn handle_connection<S>(
+    socket: S,
     state: SharedState,
     tx: broadcast::Sender<ServerMsg>,
     auth_addr: Arc<String>,
-) -> anyhow::Result<()> {
-    let (reader, mut writer) = socket.into_split();
+) -> anyhow::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let (reader, mut writer) = tokio::io::split(socket);
     let mut lines = BufReader::new(reader).lines();
     let mut rx = tx.subscribe();
 
@@ -236,7 +258,7 @@ async fn handle_connection(
 
     // Handshake: otherwise the first message must be a Connect carrying a session token.
     let outcome = match serde_json::from_str::<ClientMsg>(&first) {
-        Ok(ClientMsg::Connect { token }) => verify_session(&auth_addr, &token).await,
+        Ok(ClientMsg::Connect { token }) => verify_session(&state, &auth_addr, &token).await,
         _ => Err("connect with a session token first".to_string()),
     };
     let user = match outcome {
@@ -504,10 +526,33 @@ fn env_number<T: std::str::FromStr>(name: &str, default: T) -> T {
 }
 
 /// Asks the auth service who a session token belongs to. Returns the display name.
-async fn verify_session(auth_addr: &str, token: &str) -> Result<String, String> {
-    let mut stream = TcpStream::connect(auth_addr)
+/// Trust on first use: remembers the certificate fingerprint of a server or the auth service the
+/// first time it is seen, and refuses one that has changed since.
+fn pin_ok(state: &SharedState, kind: &str, addr: &str, fingerprint: &str) -> bool {
+    let key = format!("pin:{kind}:{addr}");
+    let s = state.lock().unwrap();
+    let remembered = s.db.info_value(&key).ok().flatten();
+    match common::tls::check_pin(remembered.as_deref(), fingerprint) {
+        Ok(true) => {
+            let _ = s.db.set_server_info(&key, fingerprint);
+            true
+        }
+        Ok(false) => true,
+        Err(e) => {
+            eprintln!("{addr}: {e}");
+            false
+        }
+    }
+}
+
+/// Asks the auth service who a session token belongs to. Returns the display name.
+async fn verify_session(state: &SharedState, auth_addr: &str, token: &str) -> Result<String, String> {
+    let (mut stream, fingerprint) = common::tls::connect_async(auth_addr)
         .await
         .map_err(|e| format!("auth service unavailable: {e}"))?;
+    if !pin_ok(state, "auth", auth_addr, &fingerprint) {
+        return Err("the auth service's certificate has changed".into());
+    }
     let mut request = serde_json::to_string(&AuthRequest::Verify { token: token.to_string() })
         .map_err(|e| e.to_string())?;
     request.push('\n');

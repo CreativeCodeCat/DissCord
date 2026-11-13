@@ -130,7 +130,15 @@ impl Db {
         self.set_server_info("server_description", description)
     }
 
-    fn set_server_info(&self, key: &str, value: &str) -> rusqlite::Result<()> {
+    /// A value from the server_info table, if it is set.
+    pub fn info_value(&self, key: &str) -> rusqlite::Result<Option<String>> {
+        use rusqlite::OptionalExtension;
+        self.conn
+            .query_row("SELECT value FROM server_info WHERE key = ?1", params![key], |row| row.get(0))
+            .optional()
+    }
+
+    pub fn set_server_info(&self, key: &str, value: &str) -> rusqlite::Result<()> {
         self.conn.execute(
             "INSERT INTO server_info (key, value) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",

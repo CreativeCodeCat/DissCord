@@ -488,6 +488,8 @@ impl DissCordApp {
         } else if let Some(sel) = self.selected.filter(|&s| s > index) {
             self.selected = Some(sel - 1);
         }
+        let addr = self.servers[index].addr.clone();
+        crate::trust::forget(&format!("server:{addr}"));
         self.servers.remove(index);
     }
 

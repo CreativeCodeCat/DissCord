@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod tls;
+
 /// Default address of a chat server.
 pub const DEFAULT_ADDR: &str = "127.0.0.1:7878";
 /// Default address of the auth service that owns all accounts.

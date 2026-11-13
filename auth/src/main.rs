@@ -12,8 +12,8 @@ use argon2::password_hash::{phc::PasswordHash, PasswordHasher, PasswordVerifier}
 use argon2::Argon2;
 use common::{is_valid_email, AuthReply, AuthRequest, DEFAULT_AUTH_ADDR};
 use db::Db;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::net::TcpListener;
 
 const DEFAULT_DB_PATH: &str = "auth.db";
 const MAX_NAME_LEN: usize = 24;
@@ -28,14 +28,33 @@ async fn main() -> anyhow::Result<()> {
     let addr = args.next().unwrap_or_else(|| DEFAULT_AUTH_ADDR.to_string());
     let db_path = args.next().unwrap_or_else(|| DEFAULT_DB_PATH.to_string());
 
-    let db: SharedDb = Arc::new(Mutex::new(Db::open(&db_path)?));
+    let db = Db::open(&db_path)?;
+    // The service's own certificate. It is made the first time the service runs.
+    let (cert, key) = match db.tls_identity()? {
+        Some(identity) => identity,
+        None => {
+            let identity = common::tls::new_identity()?;
+            db.store_tls_identity(&identity.0, &identity.1)?;
+            identity
+        }
+    };
+    let acceptor = common::tls::acceptor(&cert, &key)?;
+    let db: SharedDb = Arc::new(Mutex::new(db));
     let listener = TcpListener::bind(&addr).await?;
-    println!("DissCord auth service listening on {addr}, storing accounts in {db_path}");
+    println!("DissCord auth service listening on {addr} (TLS), storing accounts in {db_path}");
 
     loop {
         let (socket, peer) = listener.accept().await?;
         let db = db.clone();
+        let acceptor = acceptor.clone();
         tokio::spawn(async move {
+            let socket = match acceptor.accept(socket).await {
+                Ok(socket) => socket,
+                Err(e) => {
+                    eprintln!("{peer}: TLS handshake failed: {e}");
+                    return;
+                }
+            };
             if let Err(e) = handle_connection(socket, db).await {
                 eprintln!("{peer}: {e}");
             }
@@ -44,8 +63,11 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// Reads requests line by line until the client disconnects.
-async fn handle_connection(socket: TcpStream, db: SharedDb) -> anyhow::Result<()> {
-    let (reader, mut writer) = socket.into_split();
+async fn handle_connection<S>(socket: S, db: SharedDb) -> anyhow::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let (reader, mut writer) = tokio::io::split(socket);
     let mut lines = BufReader::new(reader).lines();
     while let Some(line) = lines.next_line().await? {
         let reply = match serde_json::from_str::<AuthRequest>(&line) {

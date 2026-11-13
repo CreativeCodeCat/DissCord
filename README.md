@@ -129,7 +129,13 @@ client is in, plus `joined` (with up to 200 messages of history).
   session token (never your password) in its app data folder, and it stays
   logged in after a restart. Without it, you log in again after restarting.
   Anyone who can read that file can use your session until it is logged out.
-- Plain TCP, no TLS.
+- Connections use TLS with self-signed certificates. Each server and the auth
+  service makes its own certificate the first time it runs. A client trusts
+  the first certificate it sees from an address and refuses a different one
+  later. Removing a server from your list forgets its certificate. If the auth
+  service or a server is reset on purpose, its remembered certificate must be
+  cleared by hand: delete the `pin:` rows in that server's database, or the
+  `disscord_pins` entry in the client's app data file.
 - Databases from earlier versions keep their old `accounts` and `users`
   tables, which are no longer used. Accounts registered on the old chat
   servers must register again with the auth service.

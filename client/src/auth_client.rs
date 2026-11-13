@@ -1,11 +1,12 @@
-//! Blocking requests to the auth service (register, log in, log out).
+//! Blocking requests to the auth service (register, log in, log out), over TLS.
 //! Set the `DISSCORD_AUTH` environment variable to use a different auth service.
 
 use std::io::{BufRead, BufReader, Write};
-use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use common::{AuthReply, AuthRequest, DEFAULT_AUTH_ADDR};
+
+use crate::trust;
 
 pub fn auth_addr() -> String {
     std::env::var("DISSCORD_AUTH").unwrap_or_else(|_| DEFAULT_AUTH_ADDR.to_string())
@@ -14,15 +15,12 @@ pub fn auth_addr() -> String {
 /// Sends one request and returns the reply.
 pub fn request(req: &AuthRequest) -> Result<AuthReply, String> {
     let addr = auth_addr();
-    let socket_addr = addr
-        .to_socket_addrs()
-        .map_err(|e| format!("invalid auth service address: {e}"))?
-        .next()
-        .ok_or_else(|| "auth service address did not resolve".to_string())?;
-
-    let mut stream = TcpStream::connect_timeout(&socket_addr, Duration::from_secs(4))
+    let (mut stream, fingerprint) = common::tls::connect_blocking(&addr, Duration::from_secs(4))
         .map_err(|e| connect_error_message(&addr, &e))?;
+    // Check the certificate before sending anything, such as a password.
+    trust::check(&format!("auth:{addr}"), &fingerprint)?;
     stream
+        .sock
         .set_read_timeout(Some(Duration::from_secs(8)))
         .map_err(|e| e.to_string())?;
 
