@@ -1640,12 +1640,7 @@ fn home(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
                 if link.dms.is_empty() {
                     continue;
                 }
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    ui.add_space(8.0);
-                    let heading = if link.server_name.is_empty() { &server.name } else { &link.server_name };
-                    ui.label(RichText::new(heading.to_uppercase()).small().strong().color(pal().text_muted));
-                });
+                // No server name here: the Direct messages page does not show it.
                 ui.add_space(4.0);
                 for dm in &link.dms {
                     let here = app.conn.is_some() && app.connected_addr == link.addr;
