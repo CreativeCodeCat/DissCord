@@ -365,8 +365,6 @@ impl Db {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// Deletes a message, but only when `author` wrote it. Returns the message's channel, or
-    /// `None` when there is no such message by that author.
     /// Deletes a message if `requester` wrote it, or always when `any` is true (the server owner,
     /// except in direct messages, which only their members can delete from).
     /// Returns the message's channel, or `None` if nothing was deleted.
@@ -492,5 +490,62 @@ impl Db {
             m.reactions = reactions.remove(&m.id).unwrap_or_default();
         }
         Ok(messages)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn message(channel: &str, author: &str, text: &str) -> ChatMessage {
+        ChatMessage {
+            id: 0,
+            channel: channel.into(),
+            author: author.into(),
+            author_id: author.into(),
+            text: text.into(),
+            timestamp: 1,
+            edited: false,
+            reactions: vec![],
+        }
+    }
+
+    #[test]
+    fn direct_messages_are_for_their_two_members_only() {
+        let db = Db::open(":memory:").unwrap();
+        db.add_member("alice", "Alice", 1).unwrap();
+        db.add_member("bob", "Bob", 1).unwrap();
+        db.add_member("carol", "Carol", 1).unwrap();
+
+        let dm = db.open_direct_message("alice", "bob").unwrap();
+        assert_eq!(dm, "dm-1");
+        assert_eq!(db.open_direct_message("bob", "alice").unwrap(), dm, "same pair, same channel");
+
+        assert!(db.is_direct_message_member(&dm, "alice").unwrap());
+        assert!(db.is_direct_message_member(&dm, "bob").unwrap());
+        assert!(!db.is_direct_message_member(&dm, "carol").unwrap());
+        assert!(!db.is_direct_message_member("general", "alice").unwrap());
+
+        assert_eq!(db.member_by_display_name("Bob").unwrap().as_deref(), Some("bob"));
+        assert_eq!(db.direct_messages_of("alice").unwrap(), vec![(dm.clone(), "bob".to_string())]);
+        assert!(db.direct_messages_of("carol").unwrap().is_empty());
+    }
+
+    #[test]
+    fn owner_deletes_channel_messages_but_not_direct_messages() {
+        let db = Db::open(":memory:").unwrap();
+        db.add_member("alice", "Alice", 1).unwrap();
+        db.add_member("bob", "Bob", 1).unwrap();
+        db.add_member("owner", "Owner", 1).unwrap();
+        let dm = db.open_direct_message("alice", "bob").unwrap();
+
+        let in_dm = db.save_message(&message(&dm, "alice", "hi")).unwrap();
+        let in_channel = db.save_message(&message("general", "alice", "hi")).unwrap();
+
+        // The owner (not in the DM) cannot delete it; the owner can delete a channel message.
+        assert_eq!(db.delete_message(in_dm, "owner", true).unwrap(), None);
+        assert_eq!(db.delete_message(in_channel, "owner", true).unwrap().as_deref(), Some("general"));
+        // The author can delete their own direct message.
+        assert_eq!(db.delete_message(in_dm, "alice", false).unwrap().as_deref(), Some(dm.as_str()));
     }
 }
