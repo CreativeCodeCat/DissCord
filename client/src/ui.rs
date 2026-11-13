@@ -1097,12 +1097,6 @@ fn user_settings_page(app: &mut DissCordApp, ui: &mut Ui) {
             ui.add_space(16.0);
 
             account_heading(ui, "Preferences");
-            account_row(ui, "Show the channel create box", |ui| {
-                let mut show = app.create_box_draft.unwrap_or(app.show_create_box);
-                if ui.checkbox(&mut show, "").changed() {
-                    app.create_box_draft = (show != app.show_create_box).then_some(show);
-                }
-            });
             account_row(ui, "Theme", |ui| {
                 let mut theme = app.theme_draft.unwrap_or(app.theme);
                 egui::ComboBox::from_id_salt("theme_choice")
@@ -1630,8 +1624,8 @@ fn channel_sidebar(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAct
                 }
             }
 
-            // Hidden unless the setting is on or "+" opened it.
-            if app.show_create_box || app.create_box_open {
+            // Hidden unless "+" opened it.
+            if app.create_box_open {
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
                     ui.add_space(8.0);
