@@ -86,6 +86,11 @@ impl eframe::App for DissCordApp {
             theme::apply(ui.ctx());
         }
         self.drain_network();
+        if self.is_logged_in() {
+            self.ensure_dm_links(ui.ctx());
+            self.poll_dm_links();
+            self.drain_dm_links();
+        }
         ui::root(self, ui);
     }
 

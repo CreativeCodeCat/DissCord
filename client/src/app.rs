@@ -5,7 +5,8 @@
 //! then you add servers, and each server is joined with that account's session token.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::time::{Duration, Instant};
 
 use common::{is_valid_email, AuthReply, AuthRequest, ChatMessage, ClientMsg, DirectMessage, ServerMsg, DEFAULT_ADDR};
 use eframe::egui;
@@ -104,6 +105,12 @@ pub enum MenuAction {
     Logout,
     /// Open a direct message with the member with this display name.
     OpenDm(String),
+    /// Show the Direct messages page.
+    OpenHome,
+    /// Open a direct message on the server with this address.
+    OpenDmOn { addr: String, channel: String },
+    /// Open the conversation with a person, on every server.
+    OpenPerson(String),
     SelectServer(usize),
     RemoveServer(usize),
     OpenAddServer,
@@ -115,8 +122,54 @@ pub enum MenuAction {
     TrustNewServerCert,
 }
 
+/// A background connection to one saved server, kept open so its direct messages can be listed
+/// and their activity noticed while another server is the one being viewed.
+pub struct DmLink {
+    pub addr: String,
+    pub conn: Connection,
+    /// The server's own name, from its welcome. Empty until then.
+    pub server_name: String,
+    pub dms: Vec<DirectMessage>,
+    /// Conversations with new activity that are not open.
+    pub unread: HashSet<String>,
+    /// The history of each direct message on this server, by channel, as last fetched.
+    pub dm_history: HashMap<String, Vec<ChatMessage>>,
+}
+
+/// Message ids in the merged timeline of one person are this base plus the real id, with the
+/// index of the server's conversation added as a multiple of the base. Real ids stay below it.
+pub const VIRTUAL_BASE: i64 = 1_000_000_000_000;
+
+/// One conversation with a person on one server.
+pub struct DmTarget {
+    pub addr: String,
+    pub channel: String,
+    /// The server's name, for the switcher.
+    pub server: String,
+    pub last: u64,
+}
+
+/// One row of the Direct messages list: a person, across every server.
+pub struct PersonRow {
+    pub id: String,
+    pub name: String,
+    pub last: u64,
+    pub unread: bool,
+}
+
+/// How long to wait before trying a server again after its direct messages could not be reached.
+const DM_RETRY: Duration = Duration::from_secs(30);
+
 #[derive(Default)]
 pub struct DissCordApp {
+    /// Background connections for direct messages, one per saved server.
+    pub dm_links: Vec<DmLink>,
+    /// Connections being made, by server address. Each delivers its result when ready.
+    pub dm_connecting: HashMap<String, Receiver<Result<Connection, String>>>,
+    /// Servers that could not be reached, and when to try them again.
+    pub dm_retry_at: HashMap<String, Instant>,
+    /// A conversation to open once the server we just switched to has welcomed us.
+    pub pending_dm: Option<(String, String)>,
     // The account
     pub session: Option<Session>,
     pub register_mode: bool,
@@ -140,6 +193,8 @@ pub struct DissCordApp {
 
     // "Find servers" window
     pub show_discover: bool,
+    /// The Direct messages page is open instead of a server's channels.
+    pub home: bool,
     pub discovered: Vec<FoundServer>,
     pub discover_rx: Option<Receiver<FoundServer>>,
     pub discover_error: Option<String>,
@@ -451,8 +506,15 @@ impl DissCordApp {
     /// Name of the selected server, for the sidebar header.
     /// How the open channel is named: `#name`, or `@name` for a direct message.
     pub fn channel_label(&self) -> String {
-        match self.dms.iter().find(|d| d.channel == self.channel) {
-            Some(dm) => format!("@ {}", dm.name),
+        // The name comes from this server's list, or from its background connection's list.
+        let from_link = self
+            .dm_links
+            .iter()
+            .find(|l| l.addr == self.connected_addr)
+            .and_then(|l| l.dms.iter().find(|d| d.channel == self.channel));
+        let name = self.dms.iter().find(|d| d.channel == self.channel).or(from_link).map(|d| d.name.clone());
+        match name {
+            Some(name) => format!("@ {name}"),
             None if self.channel.starts_with("dm-") => "@ Direct message".into(),
             None => format!("#{}", self.channel),
         }
@@ -520,6 +582,7 @@ impl DissCordApp {
     /// Ends the session on the auth service and returns to the login screen.
     pub fn logout(&mut self) {
         self.saved_session = None;
+        self.close_dm_links();
         // Tell the current server first, so it forgets the session even if the auth service is down.
         if let Some(conn) = self.conn.take() {
             conn.send_last(ClientMsg::Logout);
@@ -653,6 +716,275 @@ impl DissCordApp {
         self.server_description = description.to_string();
     }
 
+    /// Starts a background connection to every saved server that has none yet. Each connection is
+    /// made on its own thread, so a slow or offline server does not hold up the window.
+    pub fn ensure_dm_links(&mut self, ctx: &egui::Context) {
+        let Some(session) = self.session.as_ref() else {
+            return;
+        };
+        let now = Instant::now();
+        for server in &self.servers {
+            let addr = server.addr.clone();
+            if self.dm_links.iter().any(|l| l.addr == addr) || self.dm_connecting.contains_key(&addr) {
+                continue;
+            }
+            if self.dm_retry_at.get(&addr).is_some_and(|at| *at > now) {
+                continue;
+            }
+            let (tx, rx) = mpsc::channel();
+            self.dm_connecting.insert(addr.clone(), rx);
+            let token = session.token.clone();
+            let repaint = ctx.clone();
+            std::thread::spawn(move || {
+                let result = net::connect(&addr, ClientMsg::Connect { token }, move || repaint.request_repaint());
+                let _ = tx.send(result);
+            });
+        }
+    }
+
+    /// Takes in the connections that have finished being made.
+    pub fn poll_dm_links(&mut self) {
+        let addrs: Vec<String> = self.dm_connecting.keys().cloned().collect();
+        for addr in addrs {
+            let Some(rx) = self.dm_connecting.get(&addr) else {
+                continue;
+            };
+            let result = match rx.try_recv() {
+                Ok(result) => result,
+                Err(TryRecvError::Empty) => continue,
+                Err(TryRecvError::Disconnected) => Err("the connection thread stopped".to_string()),
+            };
+            self.dm_connecting.remove(&addr);
+            match result {
+                Ok(conn) => {
+                    self.dm_retry_at.remove(&addr);
+                    self.dm_links.push(DmLink {
+                        addr,
+                        conn,
+                        server_name: String::new(),
+                        dms: Vec::new(),
+                        unread: HashSet::new(),
+                        dm_history: HashMap::new(),
+                    });
+                }
+                Err(_) => {
+                    self.dm_retry_at.insert(addr, Instant::now() + DM_RETRY);
+                }
+            }
+        }
+    }
+
+    /// Applies what the background connections have delivered.
+    pub fn drain_dm_links(&mut self) {
+        let mut ask_refresh = Vec::new();
+        let mut ask_fetch: Vec<(String, String)> = Vec::new();
+        let mut dropped = Vec::new();
+        for link in &mut self.dm_links {
+            let mut events = Vec::new();
+            let mut ended = false;
+            while let Ok(ev) = link.conn.incoming.try_recv() {
+                match ev {
+                    NetEvent::Server(msg) => events.push(msg),
+                    NetEvent::Disconnected(_) => ended = true,
+                }
+            }
+            for msg in events {
+                match msg {
+                    ServerMsg::Welcome { server_name, .. } => link.server_name = server_name,
+                    ServerMsg::DirectMessages { list } => link.dms = list,
+                    ServerMsg::DmHistory { channel, messages } => {
+                        link.dm_history.insert(channel, messages);
+                    }
+                    ServerMsg::Activity { channel } if channel.starts_with("dm-") => {
+                        // New activity can move the conversation up the list, and its history has
+                        // changed, so ask for both again.
+                        ask_refresh.push(link.addr.clone());
+                        ask_fetch.push((link.addr.clone(), channel.clone()));
+                        link.unread.insert(channel);
+                    }
+                    _ => {}
+                }
+            }
+            if ended {
+                dropped.push(link.addr.clone());
+            }
+        }
+        for addr in ask_refresh {
+            self.send_to_link(&addr, ClientMsg::ListDirectMessages);
+        }
+        for (addr, channel) in ask_fetch {
+            self.send_to_link(&addr, ClientMsg::FetchDm { channel });
+        }
+        for addr in dropped {
+            self.dm_links.retain(|l| l.addr != addr);
+            self.dm_retry_at.insert(addr, Instant::now() + Duration::from_secs(5));
+        }
+    }
+
+    fn send_to_link(&self, addr: &str, msg: ClientMsg) {
+        if let Some(link) = self.dm_links.iter().find(|l| l.addr == addr) {
+            let _ = link.conn.outgoing.send(msg);
+        }
+    }
+
+    /// Asks every background connection for its direct messages again.
+    pub fn refresh_dm_links(&self) {
+        for link in &self.dm_links {
+            let _ = link.conn.outgoing.send(ClientMsg::ListDirectMessages);
+        }
+    }
+
+    /// Ends the background connections, for example at logout.
+    pub fn close_dm_links(&mut self) {
+        self.dm_links.clear();
+        self.dm_connecting.clear();
+        self.dm_retry_at.clear();
+        self.pending_dm = None;
+    }
+
+    /// The person whose conversation is open, if one is. Uses this server's list, which is also
+    /// used right after a new conversation opens.
+    pub fn current_person(&self) -> Option<String> {
+        if self.conn.is_none() || !self.channel.starts_with("dm-") {
+            return None;
+        }
+        let from_link = self
+            .dm_links
+            .iter()
+            .find(|l| l.addr == self.connected_addr)
+            .and_then(|l| l.dms.iter().find(|d| d.channel == self.channel));
+        from_link
+            .or_else(|| self.dms.iter().find(|d| d.channel == self.channel))
+            .map(|d| d.other_id.clone())
+    }
+
+    /// The person a conversation on `addr` is with.
+    fn link_person(&self, addr: &str, channel: &str) -> Option<String> {
+        self.dm_links
+            .iter()
+            .find(|l| l.addr == addr)?
+            .dms
+            .iter()
+            .find(|d| d.channel == channel)
+            .map(|d| d.other_id.clone())
+    }
+
+    /// Every conversation with this person, on every server. The order is stable (by address and
+    /// channel), because message ids in the merged timeline depend on it.
+    pub fn person_targets(&self, other_id: &str) -> Vec<DmTarget> {
+        let mut out = Vec::new();
+        for link in &self.dm_links {
+            for dm in link.dms.iter().filter(|d| d.other_id == other_id) {
+                out.push(DmTarget {
+                    addr: link.addr.clone(),
+                    channel: dm.channel.clone(),
+                    server: self.server_label(&link.addr, &link.server_name),
+                    last: dm.last_message,
+                });
+            }
+        }
+        out.sort_by(|a, b| (a.addr.as_str(), a.channel.as_str()).cmp(&(b.addr.as_str(), b.channel.as_str())));
+        out
+    }
+
+    fn server_label(&self, addr: &str, server_name: &str) -> String {
+        if !server_name.is_empty() {
+            return server_name.to_string();
+        }
+        self.servers.iter().find(|s| s.addr == addr).map_or_else(|| addr.to_string(), |s| s.name.clone())
+    }
+
+    /// The Direct messages list: one row per person, most recent first.
+    pub fn persons(&self) -> Vec<PersonRow> {
+        let mut rows: HashMap<String, PersonRow> = HashMap::new();
+        for link in &self.dm_links {
+            for dm in &link.dms {
+                let row = rows.entry(dm.other_id.clone()).or_insert_with(|| PersonRow {
+                    id: dm.other_id.clone(),
+                    name: dm.name.clone(),
+                    last: 0,
+                    unread: false,
+                });
+                if dm.last_message >= row.last {
+                    row.last = dm.last_message;
+                    row.name = dm.name.clone();
+                }
+                row.unread |= link.unread.contains(&dm.channel);
+            }
+        }
+        let mut rows: Vec<PersonRow> = rows.into_values().collect();
+        rows.sort_by(|a, b| b.last.cmp(&a.last).then_with(|| a.name.cmp(&b.name)));
+        rows
+    }
+
+    /// The name shown for a person.
+    pub fn person_name(&self, other_id: &str) -> Option<String> {
+        self.persons().into_iter().find(|p| p.id == other_id).map(|p| p.name)
+    }
+
+    /// Asks every server for the history of this person's conversations.
+    pub fn fetch_person(&self, other_id: &str) {
+        for target in self.person_targets(other_id) {
+            self.send_to_link(&target.addr, ClientMsg::FetchDm { channel: target.channel });
+        }
+    }
+
+    /// Opens a person's conversation: the one on the server with the most recent message.
+    pub fn open_person(&mut self, other_id: &str, ctx: &egui::Context) {
+        let targets = self.person_targets(other_id);
+        let mut newest: Option<&DmTarget> = None;
+        for target in &targets {
+            if newest.is_none_or(|n| target.last > n.last) {
+                newest = Some(target);
+            }
+        }
+        if let Some(target) = newest {
+            let (addr, channel) = (target.addr.clone(), target.channel.clone());
+            self.home = true;
+            self.open_dm_on(&addr, &channel, ctx);
+        }
+    }
+
+    /// Sends a message action (react, edit, delete) to the server that owns the message. A merged
+    /// timeline id says which conversation it is; other ids go to the connected server. After
+    /// the action, the conversation is fetched again, so the change shows.
+    fn send_to_message(&mut self, id: i64, make: impl FnOnce(i64) -> ClientMsg) {
+        if id < VIRTUAL_BASE {
+            self.send(make(id));
+            return;
+        }
+        let index = (id / VIRTUAL_BASE) as usize - 1;
+        let real = id % VIRTUAL_BASE;
+        let Some(person) = self.current_person() else {
+            return;
+        };
+        let Some(target) = self.person_targets(&person).into_iter().nth(index) else {
+            return;
+        };
+        self.send_to_link(&target.addr, make(real));
+        self.send_to_link(&target.addr, ClientMsg::FetchDm { channel: target.channel });
+    }
+
+    /// Opens a direct message on the server it belongs to, switching to that server if needed.
+    pub fn open_dm_on(&mut self, addr: &str, channel: &str, ctx: &egui::Context) {
+        if let Some(link) = self.dm_links.iter_mut().find(|l| l.addr == addr) {
+            link.unread.remove(channel);
+        }
+        if let Some(person) = self.link_person(addr, channel) {
+            self.fetch_person(&person);
+        }
+        if self.conn.is_some() && self.connected_addr == addr {
+            self.join(channel);
+            return;
+        }
+        let Some(index) = self.servers.iter().position(|s| s.addr == addr) else {
+            return;
+        };
+        self.pending_dm = Some((addr.to_string(), channel.to_string()));
+        self.selected = Some(index);
+        self.connect_selected(ctx);
+    }
+
     /// Joins the selected server with the account's session token.
     pub fn connect_selected(&mut self, ctx: &egui::Context) {
         let (Some(index), Some(session)) = (self.selected, self.session.as_ref()) else {
@@ -698,6 +1030,8 @@ impl DissCordApp {
     }
 
     pub fn select_server(&mut self, index: usize, ctx: &egui::Context) {
+        // Choosing a server always leaves the Direct messages page, even if it is already selected.
+        self.home = false;
         if index >= self.servers.len() || self.selected == Some(index) {
             return;
         }
@@ -717,6 +1051,8 @@ impl DissCordApp {
         }
         let addr = self.servers[index].addr.clone();
         crate::trust::forget(&format!("server:{addr}"));
+        self.dm_links.retain(|l| l.addr != addr);
+        self.dm_connecting.remove(&addr);
         self.servers.remove(index);
     }
 
@@ -763,6 +1099,12 @@ impl DissCordApp {
                 self.status = format!("Connected as {name}");
                 self.send(ClientMsg::ListChannels);
                 self.send(ClientMsg::Join { channel: self.channel.clone() });
+                // A direct message chosen on another server opens once that server is ready.
+                if let Some((addr, channel)) = self.pending_dm.take() {
+                    if addr == self.connected_addr {
+                        self.send(ClientMsg::Join { channel });
+                    }
+                }
             }
             ServerMsg::Joined { channel, history } => {
                 if channel != self.channel && self.messages.contains_key(&self.channel) {
@@ -830,6 +1172,8 @@ impl DissCordApp {
             ServerMsg::Info { .. } | ServerMsg::Peers { .. } => {}
             ServerMsg::Channels { channels } => self.channels = channels,
             ServerMsg::DirectMessages { list } => self.dms = list,
+            // Histories come from the background connections; the main connection ignores them.
+            ServerMsg::DmHistory { .. } => {}
             ServerMsg::Presence { users } => {
                 self.online = users.iter().filter(|u| u.online).map(|u| u.name.clone()).collect();
                 self.offline = users.iter().filter(|u| !u.online).map(|u| u.name.clone()).collect();
@@ -888,14 +1232,15 @@ impl DissCordApp {
             }
             MenuAction::SaveEdit(id) => {
                 if let Some(text) = ctx.data_mut(|d| d.get_temp::<String>(edit_buffer(id))) {
-                    self.send(ClientMsg::Edit { id, text });
+                    self.send_to_message(id, move |real| ClientMsg::Edit { id: real, text });
                 }
                 self.editing = None;
             }
             MenuAction::CancelEdit => self.editing = None,
             MenuAction::AskDelete(id) => self.pending_delete = Some(id),
-            MenuAction::Delete(id) => self.send(ClientMsg::Delete { id }),
-            MenuAction::React { id, emoji } => self.send(ClientMsg::React { id, emoji }),
+            MenuAction::Delete(id) => self.send_to_message(id, |real| ClientMsg::Delete { id: real }),
+            MenuAction::React { id, emoji } => self.send_to_message(id, move |real| ClientMsg::React { id: real, emoji }),
+            MenuAction::OpenPerson(other_id) => self.open_person(&other_id, ctx),
             MenuAction::Mention(name) => {
                 self.input.push_str(&format!("@{name} "));
                 self.focus_input = true;
@@ -911,7 +1256,11 @@ impl DissCordApp {
             }
             MenuAction::ToggleMembers => self.members_hidden = !self.members_hidden,
             MenuAction::Logout => self.logout(),
-            MenuAction::OpenDm(name) => self.send(ClientMsg::OpenDm { name }),
+            MenuAction::OpenDm(name) => {
+                // A new conversation opens on the Direct messages page.
+                self.home = true;
+                self.send(ClientMsg::OpenDm { name });
+            }
             MenuAction::SetSkinTone(tone) => self.skin_tone = tone,
             MenuAction::TrustNewServerCert => {
                 if let Some(index) = self.selected {
@@ -922,6 +1271,11 @@ impl DissCordApp {
                 self.connect_selected(ctx);
             }
             MenuAction::SelectServer(i) => self.select_server(i, ctx),
+            MenuAction::OpenHome => {
+                self.home = true;
+                self.refresh_dm_links();
+            }
+            MenuAction::OpenDmOn { addr, channel } => self.open_dm_on(&addr, &channel, ctx),
             MenuAction::RemoveServer(i) => self.remove_server(i),
             MenuAction::OpenAddServer => {
                 self.show_add_server = true;

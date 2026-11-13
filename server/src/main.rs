@@ -381,6 +381,21 @@ where
                         }
                     }
 
+                    ClientMsg::FetchDm { channel } => {
+                        let history = {
+                            let s = state.lock().unwrap();
+                            if s.db.is_direct_message_member(&channel, &user)? {
+                                Some(s.db.history(&channel)?)
+                            } else {
+                                None
+                            }
+                        };
+                        match history {
+                            Some(messages) => send(&mut writer, &ServerMsg::DmHistory { channel, messages }).await?,
+                            None => send(&mut writer, &ServerMsg::Error { text: "that direct message is not yours".into() }).await?,
+                        }
+                    }
+
                     ClientMsg::ListDirectMessages => {
                         send(&mut writer, &ServerMsg::DirectMessages { list: direct_message_list(&state, &user)? }).await?;
                     }
@@ -720,9 +735,11 @@ fn direct_message_list(state: &SharedState, user: &str) -> rusqlite::Result<Vec<
     let conversations = s.db.direct_messages_of(user)?;
     Ok(conversations
         .into_iter()
-        .map(|(channel, other)| DirectMessage {
+        .map(|(channel, other, last_message)| DirectMessage {
             name: names.get(&other).cloned().unwrap_or_else(|| other.clone()),
             channel,
+            last_message,
+            other_id: other,
         })
         .collect())
 }

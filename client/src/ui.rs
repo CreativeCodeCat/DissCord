@@ -7,7 +7,7 @@ use chrono::NaiveDate;
 use common::{ChatMessage, QUICK_REACTIONS};
 use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, Frame, Margin, Response, RichText, Sense, TextEdit, Ui};
 
-use crate::app::{DissCordApp, Entry, MenuAction};
+use crate::app::{DissCordApp, Entry, MenuAction, VIRTUAL_BASE};
 use crate::discover::FoundServer;
 use crate::theme::*;
 use crate::util::{day_key, day_label, stamp_label, time_label};
@@ -41,7 +41,9 @@ pub fn root(app: &mut DissCordApp, ui: &mut Ui) {
         } else {
             // Once logged in, the server rail is shown and lets you pick a server.
             server_rail(app, ui, &mut actions);
-            if app.is_chat_ready() {
+            if app.home && app.is_chat_ready() {
+                home(app, ui, &mut actions);
+            } else if app.is_chat_ready() {
                 chat(app, ui, &mut actions);
             } else {
                 server_status(app, ui, &mut actions);
@@ -103,7 +105,9 @@ fn auth_banner(ui: &mut Ui) -> bool {
 fn top_bar(app: &DissCordApp, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+    // On the Direct messages page the bar shows only the conversation, not the server's name.
     let title = match app.selected_name() {
+        Some(_) if app.is_chat_ready() && app.home => app.channel_label(),
         Some(name) if app.is_chat_ready() => format!("{}  ·  {name}", app.channel_label()),
         _ => "DissCord".to_string(),
     };
@@ -236,8 +240,13 @@ fn server_rail(app: &DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
         .show(ui, |ui| {
             ui.add_space(12.0);
             ui.vertical_centered(|ui| {
+                // Direct messages sit above the servers, like Discord's Home.
+                if dm_button(ui, app.home).on_hover_text("Direct messages").clicked() {
+                    actions.push(MenuAction::OpenHome);
+                }
+                ui.add_space(8.0);
                 for (i, server) in app.servers.iter().enumerate() {
-                    let selected = app.selected == Some(i);
+                    let selected = app.selected == Some(i) && !app.home;
                     let resp = server_button(ui, &server.name, server.icon.as_deref(), selected);
                     if resp.clicked() {
                         actions.push(MenuAction::SelectServer(i));
@@ -260,6 +269,23 @@ fn server_rail(app: &DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
                 }
             });
         });
+}
+
+/// The Direct messages button at the top of the rail: a chat bubble (SVG, see
+/// `client/assets/dm.svg`). It fills with the accent colour when open or hovered.
+fn dm_button(ui: &mut Ui, open: bool) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(48.0, 48.0), Sense::click());
+    let (fill, radius) = if open || resp.hovered() {
+        (pal().accent, 16)
+    } else {
+        (pal().input_bg, 24)
+    };
+    ui.painter().rect_filled(rect, CornerRadius::same(radius), fill);
+    let icon = egui::Rect::from_center_size(rect.center(), egui::vec2(24.0, 24.0));
+    egui::Image::new(egui::include_image!("../assets/dm.svg"))
+        .tint(if open || resp.hovered() { pal().text_strong } else { pal().text_muted })
+        .paint_at(ui, icon);
+    resp
 }
 
 /// A server icon: first letter of the name on a colour. The selected one is rounder with a bar.
@@ -1575,6 +1601,113 @@ fn chat(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
         .show(ui, |ui| messages(app, ui, actions));
 }
 
+/// The Direct messages page: your conversations on every server you are in, grouped by server, on
+/// the left. The open one is in the middle. Each server keeps its own direct messages, so opening
+/// one on another server switches to that server.
+fn home(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
+    egui::Panel::left("dm_list")
+        .default_size(250.0)
+        .min_size(250.0)
+        .max_size(420.0)
+        .resizable(true)
+        .frame(Frame::new().fill(pal().sidebar_bg))
+        .show(ui, |ui| {
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                ui.add_space(8.0);
+                ui.label(RichText::new("DIRECT MESSAGES").small().strong().color(pal().text_muted));
+            });
+            ui.add_space(4.0);
+            let any = app.dm_links.iter().any(|l| !l.dms.is_empty());
+            if !any {
+                ui.horizontal_wrapped(|ui| {
+                    ui.add_space(12.0);
+                    let text = if app.servers.is_empty() {
+                        "Add a server to see your direct messages."
+                    } else if app.dm_links.is_empty() {
+                        "Connecting to your servers..."
+                    } else {
+                        "No direct messages yet. Right-click a member's name and choose Message."
+                    };
+                    ui.label(RichText::new(text).color(pal().text_muted));
+                });
+            }
+            // One row per person, across every server, most recent first.
+            let open_person = app.current_person();
+            for person in app.persons() {
+                let selected = open_person.as_deref() == Some(person.id.as_str());
+                let label = format!("@ {}", person.name);
+                // The row id starts with "dm-", so its menu has no copy item.
+                let id = format!("dm-{}", person.id);
+                let unread = !selected && person.unread;
+                if channel_row(ui, &id, &label, selected, unread, actions) && !selected {
+                    actions.push(MenuAction::OpenPerson(person.id.clone()));
+                }
+            }
+        });
+
+    let person = app.current_person();
+    let open = person.is_some() || app.channel.starts_with("dm-");
+    egui::Panel::top("dm_header")
+        .exact_size(48.0)
+        .frame(Frame::new().fill(pal().app_bg))
+        .show(ui, |ui| {
+            ui.horizontal_centered(|ui| {
+                ui.add_space(16.0);
+                let title = match &person {
+                    Some(id) => app.person_name(id).map_or_else(|| app.channel_label(), |name| format!("@ {name}")),
+                    None => "Direct messages".to_string(),
+                };
+                ui.label(RichText::new(title).strong().size(16.0).color(pal().text_strong));
+                // With conversations on several servers, choose which one new messages go to.
+                if let Some(id) = &person {
+                    let targets = app.person_targets(id);
+                    if targets.len() > 1 {
+                        ui.add_space(12.0);
+                        let current = app.connected_addr.clone();
+                        let sending_to = targets
+                            .iter()
+                            .find(|t| t.addr == current)
+                            .map_or_else(String::new, |t| t.server.clone());
+                        egui::ComboBox::from_id_salt("dm_server")
+                            .selected_text(format!("Sending to {sending_to}"))
+                            .show_ui(ui, |ui| {
+                                for target in &targets {
+                                    let chosen = target.addr == current;
+                                    if ui.selectable_label(chosen, &target.server).clicked() {
+                                        actions.push(MenuAction::OpenDmOn {
+                                            addr: target.addr.clone(),
+                                            channel: target.channel.clone(),
+                                        });
+                                    }
+                                }
+                            });
+                    }
+                }
+            });
+        });
+
+    if open {
+        egui::Panel::bottom("composer")
+            .show_separator_line(false)
+            .frame(Frame::new().fill(pal().app_bg).inner_margin(Margin::symmetric(16, 12)))
+            .show(ui, |ui| composer(app, ui));
+    }
+
+    egui::CentralPanel::default()
+        .frame(Frame::new().fill(pal().app_bg))
+        .show(ui, |ui| {
+            if open {
+                messages(app, ui, actions);
+            } else {
+                ui.centered_and_justified(|ui| {
+                    ui.label(RichText::new("Pick a conversation on the left.").color(pal().text_muted));
+                });
+            }
+        });
+
+}
+
 fn channel_sidebar(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
     egui::Panel::bottom("user_bar")
         .exact_size(56.0)
@@ -2114,6 +2247,7 @@ fn header(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
 
 /// The message box with the "+" on the left and gift, GIF, sticker and emoji buttons inside.
 fn composer(app: &mut DissCordApp, ui: &mut Ui) {
+    let hint = format!("Message {}", app.channel_label());
     ui.horizontal(|ui| {
         icon_button(ui, Icon::Plus, 40.0, false).on_hover_text(NOT_YET_TIP);
         let box_width = ui.available_width() - 48.0;
@@ -2128,7 +2262,7 @@ fn composer(app: &mut DissCordApp, ui: &mut Ui) {
                     let resp = ui.add(
                         TextEdit::singleline(&mut app.input)
                             .frame(Frame::NONE)
-                            .hint_text(format!("Message #{}", app.channel))
+                            .hint_text(hint)
                             .desired_width(inner - 4.0 * 28.0),
                     );
                     if app.focus_input {
@@ -2153,18 +2287,67 @@ fn composer(app: &mut DissCordApp, ui: &mut Ui) {
 
 fn messages(app: &DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
     let channel = app.channel.clone();
+    if app.current_person().is_some() {
+        // A conversation with a person: every server's messages with them, in time order.
+        let entries = dm_timeline(app);
+        message_list(app, ui, actions, &format!("person-{}", app.channel), &channel, &entries, None);
+        return;
+    }
     let entries: &[Entry] = app.messages.get(&channel).map(Vec::as_slice).unwrap_or(&[]);
-    let query = app.search.trim().to_lowercase();
     // Where the red "NEW" line goes: the first message that arrived after you left this channel.
     let new_at = app.read_marks.get(&channel).copied();
+    message_list(app, ui, actions, &channel, &channel, entries, new_at);
+}
+
+/// The messages with the open person from every server, merged by time. Each message's id says
+/// which server it is on (see `VIRTUAL_BASE`).
+fn dm_timeline(app: &DissCordApp) -> Vec<Entry> {
+    let Some(person) = app.current_person() else {
+        return Vec::new();
+    };
+    let mut entries = Vec::new();
+    for (index, target) in app.person_targets(&person).iter().enumerate() {
+        let Some(link) = app.dm_links.iter().find(|l| l.addr == target.addr) else {
+            continue;
+        };
+        let Some(history) = link.dm_history.get(&target.channel) else {
+            continue;
+        };
+        for message in history {
+            let mut message = message.clone();
+            if message.id != 0 {
+                message.id += (index as i64 + 1) * VIRTUAL_BASE;
+            }
+            entries.push(Entry::Chat(message));
+        }
+    }
+    entries.sort_by_key(|entry| match entry {
+        Entry::Chat(m) => m.timestamp,
+        Entry::System { at, .. } => *at,
+    });
+    entries
+}
+
+/// The scrolling list of messages. `key` keeps the scroll position apart for each view, and
+/// `channel` names the view in the welcome line.
+fn message_list(
+    app: &DissCordApp,
+    ui: &mut Ui,
+    actions: &mut Vec<MenuAction>,
+    key: &str,
+    channel: &str,
+    entries: &[Entry],
+    new_at: Option<usize>,
+) {
+    let query = app.search.trim().to_lowercase();
 
     egui::ScrollArea::vertical()
-        .id_salt(("messages", &channel))
+        .id_salt(("messages", key))
         .auto_shrink([false, false])
         .stick_to_bottom(true)
         .show(ui, |ui| {
             ui.add_space(16.0);
-            welcome(ui, &channel);
+            welcome(ui, app, channel);
 
             if !query.is_empty() && !entries.iter().any(|e| matches_query(e, &query)) {
                 ui.add_space(8.0);
@@ -2221,17 +2404,23 @@ fn messages(app: &DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
         });
 }
 
-fn welcome(ui: &mut Ui, channel: &str) {
+fn welcome(ui: &mut Ui, app: &DissCordApp, channel: &str) {
+    // A direct message is named after the other member, not as a channel.
+    let (title, subtitle) = if channel.starts_with("dm-") {
+        let label = app.channel_label();
+        let name = label.trim_start_matches("@ ").to_string();
+        (label, format!("This is the start of your direct messages with {name}."))
+    } else {
+        (
+            format!("Welcome to #{channel}!"),
+            format!("This is the start of the #{channel} channel."),
+        )
+    };
     ui.horizontal(|ui| {
         ui.add_space(16.0);
         ui.vertical(|ui| {
-            ui.label(
-                RichText::new(format!("Welcome to #{channel}!"))
-                    .size(28.0)
-                    .strong()
-                    .color(pal().text_strong),
-            );
-            ui.label(RichText::new(format!("This is the start of the #{channel} channel.")).color(pal().text_muted));
+            ui.label(RichText::new(title).size(28.0).strong().color(pal().text_strong));
+            ui.label(RichText::new(subtitle).color(pal().text_muted));
         });
     });
     ui.add_space(16.0);
