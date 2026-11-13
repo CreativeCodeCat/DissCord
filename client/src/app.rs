@@ -50,9 +50,12 @@ fn icon_png_base64(path: &std::path::Path) -> Result<String, String> {
 /// Key under which the saved login is stored by eframe.
 pub const SESSION_KEY: &str = "disscord_session";
 
-/// A login remembered between runs. Holds the session token, never the password.
+/// A login remembered between runs. The password is never kept. The token is kept in the
+/// system keychain, so it is not written to the data file (`skip_serializing`), but an older
+/// data file that still has it is read.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SavedSession {
+    #[serde(default, skip_serializing)]
     pub token: String,
     pub name: String,
     /// Address of the server that was open, so it can be reopened automatically.
@@ -334,6 +337,7 @@ impl DissCordApp {
         self.saved_session = None;
         if let Some(session) = self.session.take() {
             let _ = auth_client::request(&AuthRequest::Logout { token: session.token });
+            crate::keychain::forget(&self.user);
         }
         self.disconnect();
         self.selected = None;

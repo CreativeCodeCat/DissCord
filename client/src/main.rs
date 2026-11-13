@@ -1,6 +1,7 @@
 mod app;
 mod auth_client;
 mod discover;
+mod keychain;
 mod emoji_images;
 mod net;
 mod theme;
@@ -39,7 +40,16 @@ fn main() -> eframe::Result {
             let saved_session: Option<SavedSession> = cc
                 .storage
                 .and_then(|storage| eframe::get_value(storage, SESSION_KEY))
-                .flatten();
+                .flatten()
+                .map(|mut saved: SavedSession| {
+                    // The token is not in the data file. Read it from the keychain. A token left in
+                    // the file by an older version is kept as it is, and moves to the keychain on save.
+                    if saved.token.is_empty() {
+                        saved.token = keychain::load(&saved.name).unwrap_or_default();
+                    }
+                    saved
+                })
+                .filter(|saved| !saved.token.is_empty());
             // Certificates remembered from earlier runs.
             if let Some(pins) = cc
                 .storage
@@ -72,6 +82,12 @@ impl eframe::App for DissCordApp {
         eframe::set_value(storage, SERVERS_KEY, &self.servers);
         eframe::set_value(storage, trust::PINS_KEY, &*trust::PINS.lock().unwrap());
         eframe::set_value(storage, app::CREATE_BOX_KEY, &self.show_create_box);
-        eframe::set_value(storage, SESSION_KEY, &self.stored_session());
+        let session = self.stored_session();
+        if let Some(saved) = &session {
+            if let Err(e) = keychain::store(&saved.name, &saved.token) {
+                eprintln!("could not save your login to the keychain: {e}");
+            }
+        }
+        eframe::set_value(storage, SESSION_KEY, &session);
     }
 }

@@ -135,9 +135,11 @@ client is in, plus `joined` (with up to 200 messages of history).
   still work on a server during an outage. Each server keeps these sessions in
   its database.
 - With "Keep me logged in on this computer" ticked, the client saves your
-  session token (never your password) in its app data folder, and it stays
-  logged in after a restart. Without it, you log in again after restarting.
-  Anyone who can read that file can use your session until it is logged out.
+  session token (never your password) in the system keychain, and it stays
+  logged in after a restart. Without it, you log in again after restarting. On
+  Linux this needs a Secret Service provider such as GNOME Keyring or KWallet.
+  Anyone who can unlock the keychain can use your session until it is logged
+  out.
 - Connections use TLS with self-signed certificates. Each server and the auth
   service makes its own certificate the first time it runs. A client trusts
   the first certificate it sees from an address and refuses a different one
