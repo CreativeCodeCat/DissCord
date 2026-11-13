@@ -2245,7 +2245,7 @@ fn composer(app: &mut DissCordApp, ui: &mut Ui) {
                     let resp = ui.add(
                         TextEdit::singleline(&mut app.input)
                             .frame(Frame::NONE)
-                            .hint_text(format!("Message #{}", app.channel))
+                            .hint_text(format!("Message {}", app.channel_label()))
                             .desired_width(inner - 4.0 * 28.0),
                     );
                     if app.focus_input {

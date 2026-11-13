@@ -481,8 +481,15 @@ impl DissCordApp {
     /// Name of the selected server, for the sidebar header.
     /// How the open channel is named: `#name`, or `@name` for a direct message.
     pub fn channel_label(&self) -> String {
-        match self.dms.iter().find(|d| d.channel == self.channel) {
-            Some(dm) => format!("@ {}", dm.name),
+        // The name comes from this server's list, or from its background connection's list.
+        let from_link = self
+            .dm_links
+            .iter()
+            .find(|l| l.addr == self.connected_addr)
+            .and_then(|l| l.dms.iter().find(|d| d.channel == self.channel));
+        let name = self.dms.iter().find(|d| d.channel == self.channel).or(from_link).map(|d| d.name.clone());
+        match name {
+            Some(name) => format!("@ {name}"),
             None if self.channel.starts_with("dm-") => "@ Direct message".into(),
             None => format!("#{}", self.channel),
         }
