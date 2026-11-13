@@ -321,21 +321,24 @@ fn server_header(app: &DissCordApp, ui: &mut Ui, title: &str, actions: &mut Vec<
     };
     let painter = ui.painter();
     painter.rect_filled(rect, CornerRadius::ZERO, bg);
-    let title_rect = painter.text(
-        rect.left_center() + egui::vec2(16.0, 0.0),
+    // The name starts after the house when this server is public, so the house sits on the left.
+    let mut title_x = 16.0;
+    if app.server_public {
+        // A small house before the name: other servers know this one.
+        let house = egui::Rect::from_center_size(
+            egui::pos2(rect.left() + 23.0, rect.center().y),
+            egui::vec2(14.0, 14.0),
+        );
+        egui::Image::new(egui::include_image!("../assets/house.svg")).paint_at(ui, house);
+        title_x = 38.0;
+    }
+    painter.text(
+        rect.left_center() + egui::vec2(title_x, 0.0),
         Align2::LEFT_CENTER,
         title,
         FontId::proportional(16.0),
         TEXT_STRONG,
     );
-    if app.server_public {
-        // A small house next to the name: other servers know this one.
-        let house = egui::Rect::from_center_size(
-            egui::pos2(title_rect.right() + 14.0, rect.center().y),
-            egui::vec2(14.0, 14.0),
-        );
-        egui::Image::new(egui::include_image!("../assets/house.svg")).paint_at(ui, house);
-    }
     // Chevron on the right, pointing down like Discord's.
     let c = rect.right_center() - egui::vec2(18.0, 0.0);
     painter.add(egui::Shape::convex_polygon(
