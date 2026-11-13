@@ -2400,6 +2400,35 @@ fn emoji_picker(ui: &mut Ui, id: i64, actions: &mut Vec<MenuAction>) -> bool {
     ui.data_mut(|d| d.insert_temp(search_id, query.clone()));
     let query = query.trim().to_lowercase();
 
+    // The skin tone row. 0 is the default yellow; 1 to 5 are the tones, light to dark. Emoji with
+    // tones show the chosen one. The choice lasts for this session.
+    let tone_id = egui::Id::NULL.with("emoji_picker_tone");
+    let mut tone: usize = ui.data(|d| d.get_temp(tone_id)).unwrap_or(0);
+    const TONE_NAMES: [&str; 6] = [
+        "Default",
+        "Light skin tone",
+        "Medium-light skin tone",
+        "Medium skin tone",
+        "Medium-dark skin tone",
+        "Dark skin tone",
+    ];
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+        for (i, name) in TONE_NAMES.iter().enumerate() {
+            let sample = if i == 0 { "👋" } else { common::skin_tone_variants("👋").map_or("👋", |v| v[i - 1]) };
+            let selected = i == tone;
+            let frame = Frame::new()
+                .corner_radius(CornerRadius::same(6))
+                .stroke(egui::Stroke::new(1.5, if selected { pal().accent } else { egui::Color32::TRANSPARENT }));
+            frame.show(ui, |ui| {
+                if emoji_button(ui, sample, 20.0, Some(name)) {
+                    tone = i;
+                }
+            });
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(tone_id, tone));
+
     egui::ScrollArea::vertical()
         .max_height(320.0)
         .auto_shrink([false, false])
@@ -2420,7 +2449,11 @@ fn emoji_picker(ui: &mut Ui, id: i64, actions: &mut Vec<MenuAction>) -> bool {
                 ui.label(RichText::new(category).small().strong().color(pal().text_muted));
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
-                    for (name, emoji) in emoji {
+                    for (name, base) in emoji {
+                        let emoji = match common::skin_tone_variants(base) {
+                            Some(variants) if tone > 0 => variants[tone - 1],
+                            _ => base,
+                        };
                         if emoji_button(ui, emoji, 24.0, Some(name)) {
                             actions.push(MenuAction::React { id, emoji: emoji.to_string() });
                             picked = true;

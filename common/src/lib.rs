@@ -55,6 +55,11 @@ pub enum AuthReply {
 
 pub mod emoji_data;
 
+/// The five skin tone variants of an emoji (light to dark), if it has them.
+pub fn skin_tone_variants(emoji: &str) -> Option<&'static [&'static str; 5]> {
+    emoji_data::SKIN_TONES.iter().find(|(base, _)| *base == emoji).map(|(_, variants)| variants)
+}
+
 /// The quick reactions on a message's toolbar.
 pub const QUICK_REACTIONS: [&str; 3] = ["👍", "❤️", "😂"];
 
