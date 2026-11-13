@@ -23,6 +23,13 @@ pub fn root(app: &mut DissCordApp, ui: &mut Ui) {
 
     window_resize_edges(&ctx);
     top_bar(app, ui);
+    if app.auth_down {
+        if !app.auth_banner_closed && auth_banner(ui) {
+            app.auth_banner_closed = true;
+        }
+    } else {
+        app.auth_banner_closed = false;
+    }
     if app.is_logged_in() {
         if app.show_server_settings && app.is_chat_ready() {
             // The settings page takes over the whole window, like Discord's.
@@ -60,6 +67,36 @@ enum WindowButton {
 
 /// A header bar across the top of the window. Drag it to move the window, double-click it to
 /// maximize or restore, and use the buttons on the right to minimize, maximize or close.
+/// A red strip under the title bar, shown while the auth service cannot be reached. Returns true
+/// when the user closes it.
+fn auth_banner(ui: &mut Ui) -> bool {
+    let mut close = false;
+    egui::Panel::top("auth_banner")
+        .frame(Frame::new().fill(RED).inner_margin(Margin::symmetric(16, 8)))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(
+                        "The auth service cannot be reached. You can't log in or create accounts until it is back. \
+                         Servers still accept your saved login for up to 24 hours.",
+                    )
+                    .strong()
+                    .color(TEXT_STRONG),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let (rect, resp) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), Sense::click());
+                    let color = if resp.hovered() { TEXT_STRONG } else { TEXT_STRONG.gamma_multiply(0.7) };
+                    let c = rect.center();
+                    let stroke = egui::Stroke::new(1.5, color);
+                    ui.painter().line_segment([c + egui::vec2(-4.0, -4.0), c + egui::vec2(4.0, 4.0)], stroke);
+                    ui.painter().line_segment([c + egui::vec2(-4.0, 4.0), c + egui::vec2(4.0, -4.0)], stroke);
+                    close = resp.clicked();
+                });
+            });
+        });
+    close
+}
+
 fn top_bar(app: &DissCordApp, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
