@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod env;
 pub mod tls;
 
 /// Default address of a chat server.

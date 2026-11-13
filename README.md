@@ -43,6 +43,9 @@ Start three things, each in its own terminal.
 The client finds the auth service at `127.0.0.1:7900`. To use another one, set
 `DISSCORD_AUTH=host:port` before starting the client.
 
+Settings can also go in a `.env` file in the folder you start from. Copy `.env.example` to
+`.env` to see the options. A setting already set in the shell wins over `.env`.
+
 Messages, channels and servers' data are stored in each chat server's SQLite
 database, so they survive restarts. Accounts are in the auth database.
 
