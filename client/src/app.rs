@@ -18,8 +18,7 @@ use crate::util::now_secs;
 
 /// Key under which the saved server list is stored by eframe.
 pub const SERVERS_KEY: &str = "disscord_servers";
-/// Key under which the "show channel create box" setting is stored by eframe.
-pub const CREATE_BOX_KEY: &str = "disscord_show_create_box";
+/// Key under which the colour theme is stored by eframe.
 pub const THEME_KEY: &str = "disscord_theme";
 pub const SKIN_TONE_KEY: &str = "disscord_skin_tone";
 const MIN_PASSWORD_LEN: usize = 8;
@@ -170,7 +169,6 @@ pub struct DissCordApp {
     pub name_draft: Option<String>,
     pub username_draft: Option<String>,
     pub email_draft: Option<(String, String)>,
-    pub create_box_draft: Option<bool>,
     pub theme_draft: Option<crate::theme::Theme>,
     pub rename_input: String,
     pub description_input: String,
@@ -227,8 +225,6 @@ pub struct DissCordApp {
 
     /// Hides the right-hand member list.
     pub members_hidden: bool,
-    /// Setting: keep the "Create channel" box visible in the channel sidebar. Saved between runs.
-    pub show_create_box: bool,
     /// The text channel list is folded away (the "TEXT CHANNELS" heading was clicked).
     pub channels_collapsed: bool,
     /// The box was opened with "+" and stays open until a channel is created or the box loses focus.
@@ -344,7 +340,6 @@ impl DissCordApp {
         self.name_draft.is_some()
             || self.username_draft.is_some()
             || self.email_draft.is_some()
-            || self.create_box_draft.is_some()
             || self.theme_draft.is_some()
     }
 
@@ -353,7 +348,6 @@ impl DissCordApp {
         self.name_draft = None;
         self.username_draft = None;
         self.email_draft = None;
-        self.create_box_draft = None;
         self.theme_draft = None;
         self.profile_error = None;
         self.email_error = None;
@@ -387,9 +381,6 @@ impl DissCordApp {
             if self.email_error.is_some() {
                 self.email_draft = Some((email, password));
             }
-        }
-        if let Some(show) = self.create_box_draft.take() {
-            self.show_create_box = show;
         }
         if let Some(theme) = self.theme_draft.take() {
             self.theme = theme;

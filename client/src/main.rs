@@ -42,10 +42,6 @@ fn main() -> eframe::Result {
                 .storage
                 .and_then(|storage| eframe::get_value(storage, SERVERS_KEY))
                 .unwrap_or_default();
-            let show_create_box = cc
-                .storage
-                .and_then(|storage| eframe::get_value(storage, app::CREATE_BOX_KEY))
-                .unwrap_or(false);
             let saved_session: Option<SavedSession> = cc
                 .storage
                 .and_then(|storage| eframe::get_value(storage, SESSION_KEY))
@@ -70,7 +66,6 @@ fn main() -> eframe::Result {
                 servers,
                 selected: None,
                 remember: true,
-                show_create_box,
                 theme,
                 skin_tone,
                 saved_session,
@@ -97,7 +92,6 @@ impl eframe::App for DissCordApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, SERVERS_KEY, &self.servers);
         eframe::set_value(storage, trust::PINS_KEY, &*trust::PINS.lock().unwrap());
-        eframe::set_value(storage, app::CREATE_BOX_KEY, &self.show_create_box);
         eframe::set_value(storage, app::THEME_KEY, &self.theme);
         eframe::set_value(storage, app::SKIN_TONE_KEY, &self.skin_tone);
         let session = self.stored_session();
