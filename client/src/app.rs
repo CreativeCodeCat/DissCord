@@ -511,6 +511,10 @@ impl DissCordApp {
     /// Ends the session on the auth service and returns to the login screen.
     pub fn logout(&mut self) {
         self.saved_session = None;
+        // Tell the current server first, so it forgets the session even if the auth service is down.
+        if let Some(conn) = self.conn.take() {
+            conn.send_last(ClientMsg::Logout);
+        }
         if let Some(session) = self.session.take() {
             let _ = auth_client::request(&AuthRequest::Logout { token: session.token });
             crate::keychain::forget(&self.user);

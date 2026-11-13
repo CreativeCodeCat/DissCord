@@ -22,6 +22,15 @@ pub struct Connection {
     socket: TcpStream,
 }
 
+impl Connection {
+    /// Sends one last message, gives the thread time to write it, then closes the connection.
+    pub fn send_last(self, msg: ClientMsg) {
+        let _ = self.outgoing.send(msg);
+        // The thread checks for queued messages every POLL, so wait for it to write this one.
+        std::thread::sleep(POLL * 2);
+    }
+}
+
 impl Drop for Connection {
     fn drop(&mut self) {
         // Closing the socket makes the server see a clean disconnect and ends the thread's reads.

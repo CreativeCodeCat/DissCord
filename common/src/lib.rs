@@ -139,6 +139,9 @@ pub enum ClientMsg {
     React { id: i64, emoji: String },
     /// Request the list of channels.
     ListChannels,
+    /// End this connection's session on this server, so its token stops working here even if
+    /// the auth service cannot be reached. The server then closes the connection.
+    Logout,
     /// Change the server's name and description. Only the owner may do this.
     UpdateServer { name: String, description: String },
     /// Set the server icon (a base64 PNG), or remove it with `None`. Only the owner may do this.

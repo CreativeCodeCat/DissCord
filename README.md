@@ -136,9 +136,9 @@ client is in, plus `joined` (with up to 200 messages of history).
 - The auth service must be running for anyone to log in. While it is
   unreachable, the client shows a red warning and chat servers still accept a
   session the auth service confirmed within the last 24 hours. Each server keeps
-  these sessions in its database. Logging out reaches the servers only once the
-  auth service is back, so a logged-out session can still work on a server
-  during an outage.
+  these sessions in its database. Logging out tells the server you are connected
+  to at once. Other servers learn of it only once the auth service is back, so a
+  logged-out session can still work on them during an outage.
 - With "Keep me logged in on this computer" ticked, the session token (never the
   password) is saved in the system keychain, and you stay logged in after a
   restart. On Linux this needs a Secret Service provider such as GNOME Keyring
