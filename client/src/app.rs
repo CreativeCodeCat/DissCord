@@ -104,6 +104,8 @@ pub enum MenuAction {
     Logout,
     /// Open a direct message with the member with this display name.
     OpenDm(String),
+    /// Show the Direct messages page.
+    OpenHome,
     SelectServer(usize),
     RemoveServer(usize),
     OpenAddServer,
@@ -140,6 +142,8 @@ pub struct DissCordApp {
 
     // "Find servers" window
     pub show_discover: bool,
+    /// The Direct messages page is open instead of a server's channels.
+    pub home: bool,
     pub discovered: Vec<FoundServer>,
     pub discover_rx: Option<Receiver<FoundServer>>,
     pub discover_error: Option<String>,
@@ -702,6 +706,7 @@ impl DissCordApp {
             return;
         }
         self.selected = Some(index);
+        self.home = false;
         self.connect_selected(ctx);
     }
 
@@ -911,7 +916,11 @@ impl DissCordApp {
             }
             MenuAction::ToggleMembers => self.members_hidden = !self.members_hidden,
             MenuAction::Logout => self.logout(),
-            MenuAction::OpenDm(name) => self.send(ClientMsg::OpenDm { name }),
+            MenuAction::OpenDm(name) => {
+                // A new conversation opens on the Direct messages page.
+                self.home = true;
+                self.send(ClientMsg::OpenDm { name });
+            }
             MenuAction::SetSkinTone(tone) => self.skin_tone = tone,
             MenuAction::TrustNewServerCert => {
                 if let Some(index) = self.selected {
@@ -922,6 +931,7 @@ impl DissCordApp {
                 self.connect_selected(ctx);
             }
             MenuAction::SelectServer(i) => self.select_server(i, ctx),
+            MenuAction::OpenHome => self.home = true,
             MenuAction::RemoveServer(i) => self.remove_server(i),
             MenuAction::OpenAddServer => {
                 self.show_add_server = true;

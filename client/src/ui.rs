@@ -41,7 +41,9 @@ pub fn root(app: &mut DissCordApp, ui: &mut Ui) {
         } else {
             // Once logged in, the server rail is shown and lets you pick a server.
             server_rail(app, ui, &mut actions);
-            if app.is_chat_ready() {
+            if app.home && app.is_chat_ready() {
+                home(app, ui, &mut actions);
+            } else if app.is_chat_ready() {
                 chat(app, ui, &mut actions);
             } else {
                 server_status(app, ui, &mut actions);
@@ -236,8 +238,13 @@ fn server_rail(app: &DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
         .show(ui, |ui| {
             ui.add_space(12.0);
             ui.vertical_centered(|ui| {
+                // Direct messages sit above the servers, like Discord's Home.
+                if server_button(ui, "Direct messages", None, app.home).on_hover_text("Direct messages").clicked() {
+                    actions.push(MenuAction::OpenHome);
+                }
+                ui.add_space(8.0);
                 for (i, server) in app.servers.iter().enumerate() {
-                    let selected = app.selected == Some(i);
+                    let selected = app.selected == Some(i) && !app.home;
                     let resp = server_button(ui, &server.name, server.icon.as_deref(), selected);
                     if resp.clicked() {
                         actions.push(MenuAction::SelectServer(i));
@@ -1573,6 +1580,75 @@ fn chat(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
     egui::CentralPanel::default()
         .frame(Frame::new().fill(pal().app_bg))
         .show(ui, |ui| messages(app, ui, actions));
+}
+
+/// The Direct messages page of the connected server: your conversations on the left, the open
+/// one in the middle. Each server keeps its own direct messages.
+fn home(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
+    let mut to_join: Option<String> = None;
+    egui::Panel::left("dm_list")
+        .default_size(250.0)
+        .min_size(250.0)
+        .max_size(420.0)
+        .resizable(true)
+        .frame(Frame::new().fill(pal().sidebar_bg))
+        .show(ui, |ui| {
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                ui.add_space(8.0);
+                ui.label(RichText::new("DIRECT MESSAGES").small().strong().color(pal().text_muted));
+            });
+            ui.add_space(4.0);
+            if app.dms.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.add_space(12.0);
+                    ui.label(RichText::new("No direct messages yet. Right-click a member's name and choose Message.").color(pal().text_muted));
+                });
+            }
+            for dm in &app.dms {
+                let selected = dm.channel == app.channel;
+                let unread = app.unread.contains(&dm.channel);
+                let label = format!("@ {}", dm.name);
+                if channel_row(ui, &dm.channel, &label, selected, unread, actions) && !selected {
+                    to_join = Some(dm.channel.clone());
+                }
+            }
+        });
+
+    let open = app.channel.starts_with("dm-");
+    egui::Panel::top("dm_header")
+        .exact_size(48.0)
+        .frame(Frame::new().fill(pal().app_bg))
+        .show(ui, |ui| {
+            ui.horizontal_centered(|ui| {
+                ui.add_space(16.0);
+                let title = if open { app.channel_label() } else { "Direct messages".to_string() };
+                ui.label(RichText::new(title).strong().size(16.0).color(pal().text_strong));
+            });
+        });
+
+    if open {
+        egui::Panel::bottom("composer")
+            .show_separator_line(false)
+            .frame(Frame::new().fill(pal().app_bg).inner_margin(Margin::symmetric(16, 12)))
+            .show(ui, |ui| composer(app, ui));
+    }
+
+    egui::CentralPanel::default()
+        .frame(Frame::new().fill(pal().app_bg))
+        .show(ui, |ui| {
+            if open {
+                messages(app, ui, actions);
+            } else {
+                ui.centered_and_justified(|ui| {
+                    ui.label(RichText::new("Pick a conversation on the left.").color(pal().text_muted));
+                });
+            }
+        });
+
+    if let Some(channel) = to_join {
+        app.join(&channel);
+    }
 }
 
 fn channel_sidebar(app: &mut DissCordApp, ui: &mut Ui, actions: &mut Vec<MenuAction>) {
