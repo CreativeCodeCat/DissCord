@@ -58,6 +58,27 @@ impl Db {
         // Members get a display name separate from their id. Older databases lack it.
         let _ = conn.execute("ALTER TABLE members ADD COLUMN display TEXT", []);
         let _ = conn.execute("ALTER TABLE session_cache ADD COLUMN id TEXT", []);
+        // Accounts and users tables from older versions are no longer used. Chat servers keep no
+        // accounts; the auth service does. A database with the auth service's `sessions` table is
+        // never touched.
+        let is_auth_db: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sessions'",
+            [],
+            |row| row.get(0),
+        )?;
+        if is_auth_db == 0 {
+            for table in ["accounts", "users"] {
+                let found: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )?;
+                if found > 0 {
+                    conn.execute(&format!("DROP TABLE {table}"), [])?;
+                    println!("removed the old {table} table from this database");
+                }
+            }
+        }
         // Servers that already have members but no owner: the earliest member becomes the owner.
         conn.execute(
             "INSERT OR IGNORE INTO server_info (key, value)

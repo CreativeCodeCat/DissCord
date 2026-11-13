@@ -147,9 +147,9 @@ client is in, plus `joined` (with up to 200 messages of history).
 - Each account has a hidden id, which chat uses to identify people. Changing a
   display name or username keeps your messages. Usernames are lowercase letters,
   digits and underscores, and must be unique. Display names must be unique too.
-- Databases from earlier versions keep their old `accounts` and `users` tables,
-  which are no longer used. Accounts registered on the old chat servers must
-  register again with the auth service.
+- Accounts registered on the old chat servers must register again with the auth
+  service. When a chat server starts, it removes the `accounts` and `users`
+  tables left by earlier versions from its database.
 
 **Connections and certificates**
 
